@@ -24,14 +24,43 @@ except ImportError:  # (CI's Python)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKER = ROOT / "plugins/rdkit/worker.py"
-#: What Meno holds each structure with metals these tests make to, by the MOL block they send: Meno's own answer
-#: (its lib/chem/metalHolds `metalHoldsOf`), written by Meno from the blocks these tests record into the file
+#: What Meno holds each structure with metals these tests make to, by its connection table (`table_of`): Meno's own
+#: answer (its lib/chem/metalHolds `metalHoldsOf`), written by Meno from the blocks these tests record into the file
 #: MENO_RECORD_BLOCKS names - again whenever Meno's holds change.
 METAL_HOLDS = ROOT / "tests/metal-holds.json"
 
 
+def table_of(molblock):
+    """A MOL block's connection table - its atoms, bonds and properties, in their order - with its header, its atoms'
+    coordinates and its bonds' wedges left out: all Meno's holds are worked out from (lib/chem/metalHolds
+    `holdsGraphOf`), and the same on every platform, where the coordinates RDKit lays a structure out at - and so the
+    wedges it chooses - differ from one build to another."""
+    lines = molblock.splitlines()[3:]
+    if not lines:
+        return ""
+    if "V3000" not in lines[0]:
+        n, m = int(lines[0][0:3]), int(lines[0][3:6])
+        atoms = [line[30:] for line in lines[1 : 1 + n]]
+        bonds = [line[:9] + line[12:] for line in lines[1 + n : 1 + n + m]]
+        return "\n".join([lines[0], *atoms, *bonds, *lines[1 + n + m :]])
+    out, block = [], ""
+    for line in lines:
+        if line.startswith("M  V30 BEGIN ") or line.startswith("M  V30 END "):
+            block = line.split()[3] if line.startswith("M  V30 BEGIN ") else ""
+        elif block == "ATOM" and line.startswith("M  V30 "):
+            t = line.split()
+            line = " ".join(t[:4] + t[7:])
+        elif block == "BOND" and line.startswith("M  V30 "):
+            line = " ".join(t for t in line.split() if not t.startswith("CFG="))
+        out.append(line)
+    return "\n".join(out)
+
+
 def held(molblock):
-    """A request's structure, its MOL block, with what Meno holds it to where it has metals (METAL_HOLDS)."""
+    """A request's structure, its MOL block, with what Meno holds it to where it has metals (METAL_HOLDS) - found by its
+    connection table (`table_of`). A structure with a metal bonded to anything that the file has no holds for fails the
+    test that sends it, saying so: sent unheld, it would be embedded as the plugin alone would, and pass or fail for no
+    reason of its own."""
     import json
     import os
 
@@ -40,9 +69,60 @@ def held(molblock):
         with open(record, "a", encoding="utf-8") as f:
             f.write(json.dumps(molblock) + "\n")
     if not hasattr(held, "known"):
-        held.known = {c["molblock"]: c["holds"] for c in json.loads(METAL_HOLDS.read_text())} if METAL_HOLDS.exists() else {}
-    holds = held.known.get(molblock)
+        held.known = {table_of(c["molblock"]): c["holds"] for c in json.loads(METAL_HOLDS.read_text())} if METAL_HOLDS.exists() else {}
+    holds = held.known.get(table_of(molblock))
+    if holds is None and not record and metal_bonded(molblock):
+        raise AssertionError(f"{METAL_HOLDS.name} has no holds for this structure with a metal: write it again from Meno")
     return {"molblock": molblock, **({"holds": holds} if holds else {})}
+
+
+def metal_bonded(molblock):
+    """Whether a MOL block has a d- or f-block metal bonded to anything: one Meno sends holds for."""
+    mol = Chem.MolFromMolBlock(molblock, sanitize=False, removeHs=False)
+    is_metal = lambda z: 21 <= z <= 30 or 39 <= z <= 48 or 57 <= z <= 80 or 89 <= z <= 112
+    return mol is not None and any(is_metal(a.GetAtomicNum()) and a.GetDegree() > 0 for a in mol.GetAtoms())
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
+class HeldAsMenoSays(unittest.TestCase):
+    """The holds these tests send are found by a structure's connection table alone (`table_of`), so that the same
+    structure laid out at other coordinates - by another build of RDKit, on another platform - finds them; and a
+    structure with a metal the file has none for fails, never sent unheld."""
+
+    def test_finds_the_holds_of_a_structure_laid_out_elsewhere(self):
+        import json
+        cases = json.loads(METAL_HOLDS.read_text())
+        self.assertEqual(len({table_of(c["molblock"]) for c in cases}), len(cases))
+        for c in cases:
+            # (its atoms' coordinates, and nothing else, moved in their last digits - as another build lays it out)
+            lines = c["molblock"].splitlines()
+            if "V3000" in lines[3]:
+                inside = False
+                for k, line in enumerate(lines):
+                    if line.startswith("M  V30 BEGIN ATOM") or line.startswith("M  V30 END ATOM"):
+                        inside = line.startswith("M  V30 BEGIN")
+                    elif inside:
+                        t = line.split(" ")
+                        lines[k] = line.replace(f" {t[5]} {t[6]} ", f" {float(t[5]) + 0.0001:.4f} {float(t[6]) - 0.0001:.4f} ", 1)
+            else:
+                n, m = int(lines[3][0:3]), int(lines[3][3:6])
+                for k in range(4, 4 + n):
+                    x, y = float(lines[k][0:10]), float(lines[k][10:20])
+                    lines[k] = f"{x + 0.0001:10.4f}{y - 0.0001:10.4f}" + lines[k][20:]
+                # (and a wedge chosen on another bond, as one laid out elsewhere may be)
+                for k in range(4 + n, 4 + n + m):
+                    lines[k] = lines[k][:9] + ("  1" if lines[k][9:12] == "  0" else "  0") + lines[k][12:]
+            moved = "\n".join(lines) + "\n"
+            self.assertNotEqual(moved, c["molblock"])
+            self.assertEqual(held(moved).get("holds"), c["holds"])
+
+    def test_fails_a_structure_with_a_metal_it_has_no_holds_for(self):
+        mol = Chem.MolFromSmiles("[Cu]C#N", sanitize=False)
+        with self.assertRaisesRegex(AssertionError, "has no holds for this structure with a metal"):
+            held(Chem.MolToMolBlock(mol))
+        # (one with no metal, or a metal bonded to nothing: none to hold, none needed)
+        self.assertNotIn("holds", held(Chem.MolToMolBlock(Chem.MolFromSmiles("CCO"))))
+        self.assertNotIn("holds", held(Chem.MolToMolBlock(Chem.MolFromSmiles("[Cu+2]", sanitize=False))))
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
