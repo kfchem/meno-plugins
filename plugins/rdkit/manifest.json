@@ -17,8 +17,9 @@
       "tries": true,
       "options": [
         {"id": "field", "label": "Force field", "type": "choice", "choices": [{"value": "MMFF94", "label": "MMFF94"}, {"value": "MMFF94s", "label": "MMFF94s"}, {"value": "UFF", "label": "UFF"}], "default": "MMFF94"},
-        {"id": "iters", "label": "Optimisation steps, at most", "type": "number", "default": 2000, "min": 10, "max": 100000, "step": 10},
-        {"id": "seed", "label": "Random seed", "type": "number", "default": 19781, "min": 0, "max": 2147483647, "step": 1}
+        {"id": "fallback", "label": "Where MMFF has no parameters", "type": "choice", "choices": [{"value": "UFF", "label": "UFF in its place"}, {"value": "refuse", "label": "Refuse"}], "default": "UFF"},
+        {"id": "iters", "label": "Optimisation steps, at most", "type": "number", "default": 2000, "min": 10, "max": 100000, "step": 10, "whole": true},
+        {"id": "seed", "label": "Random seed", "type": "number", "default": 19781, "min": 0, "max": 2147483647, "step": 1, "whole": true}
       ]
     },
     {"role": "drawing"}
@@ -30,7 +31,8 @@
       "programs": ["python"],
       "options": [
         {"id": "field", "label": "Force field", "type": "choice", "choices": [{"value": "MMFF94", "label": "MMFF94"}, {"value": "MMFF94s", "label": "MMFF94s"}, {"value": "UFF", "label": "UFF"}], "default": "MMFF94"},
-        {"id": "steps", "label": "Steps at most", "type": "number", "default": 2000, "min": 1, "max": 100000},
+        {"id": "fallback", "label": "Where MMFF has no parameters", "type": "choice", "choices": [{"value": "UFF", "label": "UFF in its place"}, {"value": "refuse", "label": "Refuse"}], "default": "UFF"},
+        {"id": "steps", "label": "Steps at most", "type": "number", "default": 2000, "min": 1, "max": 100000, "whole": true},
         {"id": "start", "label": "Start from", "type": "choice", "choices": [{"value": "as-it-comes", "label": "Where it is"}, {"value": "first", "label": "Where its restraints were first held"}], "default": "as-it-comes"}
       ]
     },

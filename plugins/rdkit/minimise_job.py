@@ -33,12 +33,13 @@ def main():
     mol = worker.mol_of(given, worker.held_apart(given, rows))
     options = given.get("options") or {}
     field = options.get("field") or "MMFF94"
-    iters = int(options.get("steps") or worker.STEPS)
+    iters = worker.whole_in(options["steps"], "Steps at most", 1, 100000) if options.get("steps") is not None else worker.STEPS
+    fallback = options.get("fallback") if options.get("fallback") in worker.FALLBACKS else "UFF"
     # (from where its restraints were first held, where the step asks so and they were: else from where its atoms are)
     start = given.get("start") if options.get("start") == "first" else None
     print(f"RDKit {rdBase.rdkitVersion}: {mol.GetNumAtoms()} atoms, {len(rows)} restraints, {field}, at most {iters} steps"
           f"{', from where its restraints were first held' if start is not None else ''}", flush=True)
-    made = worker.minimised(mol, rows, field=field, iters=iters, start=start)
+    made = worker.minimised(mol, rows, field=field, iters=iters, start=start, fallback=fallback)
     print(f"{made['field']}: {'converged' if made['converged'] else f'not converged in {iters} steps'}", flush=True)
     with open(worker.MINIMISE_OUT, "w", encoding="utf-8") as f:
         json.dump({"version": rdBase.rdkitVersion, "atoms": [{"el": a.GetSymbol()} for a in mol.GetAtoms()], **made}, f)

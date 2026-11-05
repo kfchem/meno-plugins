@@ -428,33 +428,50 @@ SEED = 0x4D45
 STEPS = 2000
 # the force fields conformers may be optimised in
 FIELDS = ("MMFF94", "MMFF94s", "UFF")
+#: What is done where MMFF94 or MMFF94s is asked and has no parameters for the molecule (a boron, a metal): UFF in
+#: its place, said in how they were made - or the molecule refused, saying why. The chemist's choice (`fallback`),
+#: UFF unless chosen otherwise.
+FALLBACKS = ("UFF", "refuse")
+
+
+def whole_in(value, label, low, high):
+    """`value` as a whole number from `low` to `high` - refused, saying so,
+    where it is none (a fraction, text) or lies outside them: never cut to
+    one, nor moved into range (the manifest marks each such option `whole`,
+    and says its range)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value != int(value):
+        raise ValueError(f"{label} is to be a whole number: {value!r} is not one")
+    if not low <= value <= high:
+        raise ValueError(f"{label} is to be from {low} to {high}: {int(value)} is not")
+    return int(value)
 
 
 def options_of(m):
     """How conformers are to be made: how many to try, as Meno sends it
     (`count`: the chemist's number, or as many as the molecule needs, which
-    Meno works out - lib/chem/conformersSought), kept to 1 to
-    MOST_CONFORMERS; and the options the manifest declares for the role
-    (roleOptions), each kept to what it may be."""
+    Meno works out - lib/chem/conformersSought), from 1 to MOST_CONFORMERS;
+    and the options the manifest declares for the role (roleOptions), each
+    as it may be. A number that is none of these is refused (`whole_in`)."""
     o = m.get("options") or {}
 
-    def number(key, default, low, high, kind=int):
-        try:
-            v = kind(o.get(key, default))
-        except (TypeError, ValueError):
-            v = default
-        return min(max(v, low), high)
+    def number(key, label, default, low, high):
+        return whole_in(o[key], label, low, high) if o.get(key) is not None else default
 
-    try:
-        count = min(max(int(m["count"]), 1), MOST_CONFORMERS) if m.get("count") is not None else None
-    except (TypeError, ValueError):
-        count = None
+    count = whole_in(m["count"], "How many conformers to try", 1, MOST_CONFORMERS) if m.get("count") is not None else None
     return {
         "count": count,
-        "seed": number("seed", SEED, 0, 2**31 - 1),
+        "seed": number("seed", "Random seed", SEED, 0, 2**31 - 1),
         "field": o.get("field") if o.get("field") in FIELDS else "MMFF94",
-        "iters": number("iters", STEPS, 10, 100000),
+        "iters": number("iters", "Optimisation steps, at most", STEPS, 10, 100000),
+        "fallback": o.get("fallback") if o.get("fallback") in FALLBACKS else "UFF",
     }
+
+
+def refused_without_mmff(mol, field, fallback):
+    """Raised where MMFF94 or MMFF94s is asked, has no parameters for `mol` - a metal, or an eta system's star,
+    which MMFF types as nothing - and UFF in its place was not chosen (`fallback`, FALLBACKS)."""
+    if fallback == "refuse" and field in ("MMFF94", "MMFF94s") and not rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
+        raise ValueError(f"{field} has no parameters for it, and UFF in its place was not chosen: choose UFF, or let UFF stand in")
 #: Kilocalories per mole in a hartree: energies go back in hartrees. The hartree (4.3597447222071e-18 J,
 #: CODATA 2018) times the Avogadro constant (6.02214076e23 per mole, exact, SI 2019), over the
 #: thermochemical calorie (4.184 J, exact).
@@ -771,55 +788,9 @@ def kekule_order(bond):
     return {Chem.BondType.SINGLE: 1, Chem.BondType.DOUBLE: 2, Chem.BondType.TRIPLE: 3}.get(bond.GetBondType(), 1)
 
 
-def mirror_of(mol):
-    """A stereoisomer's mirror image, its atoms and bonds as they are - or
-    None when it has stereo that is not known to turn in a mirror (only
-    stereocentres and axes do; double bonds stay as they are)."""
-    m = Chem.Mol(mol)
-    swap = {
-        Chem.ChiralType.CHI_TETRAHEDRAL_CW: Chem.ChiralType.CHI_TETRAHEDRAL_CCW,
-        Chem.ChiralType.CHI_TETRAHEDRAL_CCW: Chem.ChiralType.CHI_TETRAHEDRAL_CW,
-    }
-    for a in m.GetAtoms():
-        tag = a.GetChiralTag()
-        if tag in swap:
-            a.SetChiralTag(swap[tag])
-        elif tag != Chem.ChiralType.CHI_UNSPECIFIED:
-            return None
-    axes = {
-        Chem.BondStereo.STEREOATROPCW: Chem.BondStereo.STEREOATROPCCW,
-        Chem.BondStereo.STEREOATROPCCW: Chem.BondStereo.STEREOATROPCW,
-    }
-    for b in m.GetBonds():
-        if b.GetStereo() in axes:
-            b.SetStereo(axes[b.GetStereo()])
-    return m
-
-
-def smiles_from_3d(mol, frame):
-    """The SMILES a structure's 3D coordinates (its atoms', hydrogens and
-    all, as a flat list) say, stereo and all."""
-    m = Chem.AddHs(mol)
-    conf = Chem.Conformer(m.GetNumAtoms())
-    for i in range(m.GetNumAtoms()):
-        conf.SetAtomPosition(i, Point3D(frame[3 * i], frame[3 * i + 1], frame[3 * i + 2]))
-    m.RemoveAllConformers()
-    m.AddConformer(conf, assignId=True)
-    Chem.AssignStereochemistryFrom3D(m)
-    return smiles_of(m)
-
-
 def smiles_of(mol):
     """A stereoisomer's SMILES, any hydrogens drawn left out."""
     return Chem.MolToSmiles(Chem.RemoveHs(mol))
-
-
-def reflected(entry):
-    """Conformers in a mirror: every x turned about the plane x = 0."""
-    return {
-        **entry,
-        "frames": [[-v if k % 3 == 0 else v for k, v in enumerate(f)] for f in entry["frames"]],
-    }
 
 
 # --- metals ------------------------------------------------------------------
@@ -1286,38 +1257,20 @@ def method_of(mol, ids, field, stood_in, metals, holds):
     return made + ("; restrained: " + ", ".join(held) if held else "")
 
 
-def conformers_of(iso, how, made, page=False):
-    """A stereoisomer's conformers. On Meno's own page (`page`), of two
-    enantiomers the one whose SMILES comes first is made, and the other is
-    its mirror image: the same shapes and energies, whichever is asked for
-    and in whichever request. A workflow's step makes each as RDKit makes
-    it. `made` keeps what has been made, by SMILES, for the rest of the
-    request."""
+def conformers_of(iso, how, made):
+    """A stereoisomer's conformers, as RDKit makes them (`conformers`): each
+    stereoisomer made itself, an enantiomer as much as any. `made` keeps
+    what has been made, by SMILES, for the rest of the request."""
     smiles = smiles_of(iso)
-    if not page:
-        if smiles not in made:
-            made[smiles] = conformers(iso, **how)
-        return made[smiles]
-    mirror = mirror_of(iso)
-    twin = smiles_of(mirror) if mirror is not None else smiles
-    if twin >= smiles:
-        if smiles not in made:
-            made[smiles] = conformers(iso, **how)
-        return made[smiles]
-    if twin not in made:
-        made[twin] = conformers(mirror, **how)
-    entry = reflected(made[twin])
-    # (and if the mirror has not given this one after all, it is made itself)
-    if smiles_from_3d(iso, entry["frames"][0]) != smiles:
-        if smiles not in made:
-            made[smiles] = conformers(iso, **how)
-        return made[smiles]
-    return entry
+    if smiles not in made:
+        made[smiles] = conformers(iso, **how)
+    return made[smiles]
 
 
-def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(), holds=None):
+def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(), holds=None, fallback="UFF"):
     """A stereoisomer's conformers, embedded (ETKDG) and optimised (MMFF94,
-    MMFF94s or UFF, as asked - UFF where MMFF has no parameters) - every one
+    MMFF94s or UFF, as asked - UFF where MMFF has no parameters, or the
+    molecule refused before anything is embedded, as `fallback` says) - every one
     RDKit made, as it made it, in the order it embedded them, with their
     energies; and how they were made, said as rows to show (`how`). How many
     are tried is `count`, as Meno sends it. A molecule with metals is held as
@@ -1334,6 +1287,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
     eta = holds["eta"] if holds else []
     mol = Chem.AddHs(mol)
     holds = with_hydrides(mol, holds)
+    refused_without_mmff(mol, field, fallback)
     params = rdDistGeom.ETKDGv3()
     params.randomSeed = seed
     # (nothing pruned while embedding: ETKDG's raw coordinates are not yet chairs, and two embeddings that would
@@ -1380,7 +1334,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
     untyped = sorted({el for el, digit in metals if digit is None})
     if rows:
         # (its restraints held while each conformer is optimised, as Minimise with restraints holds them)
-        field, make = restrained_field(mol, rows, field)
+        field, make = restrained_field(mol, rows, field, fallback)
         stood_in, results = False, []
         for cid in ids:
             ff = make(cid, rows)
@@ -1478,10 +1432,7 @@ def op_conformers(m):
     openStereo) - or, none named, of the structure as drawn. Each goes back
     with the CIP label of every stereocentre and double bond (`cip`), atom
     by atom and bond by bond, and its SMILES. Each is every conformer RDKit
-    made, in the order it embedded them (`conformers`). `onPage`, which
-    Meno's own page sends and a workflow's step never does, has an
-    enantiomer made as the mirror image of its twin (`conformers_of`); else
-    each is made itself."""
+    made, in the order it embedded them (`conformers`), each made itself."""
     drawn = read(m["molblock"])
     holds = holds_of(m)
     as_ligand_anions(drawn, holds)
@@ -1489,7 +1440,7 @@ def op_conformers(m):
     how = {**options_of(m), "holds": holds}
     for given in m.get("isomers") or [None]:
         iso = configured(drawn, given)
-        entry = dict(conformers_of(iso, how, cache, bool(m.get("onPage"))))
+        entry = dict(conformers_of(iso, how, cache))
         rdCIPLabeler.AssignCIPLabels(iso)
         entry["cip"] = {
             "atoms": {str(a.GetIdx()): a.GetProp("_CIPCode") for a in iso.GetAtoms() if a.HasProp("_CIPCode")},
@@ -1679,13 +1630,14 @@ def restraint_rows(rows, n):
     return held
 
 
-def minimised(mol, rows, field="MMFF94", iters=STEPS, start=None):
+def minimised(mol, rows, field="MMFF94", iters=STEPS, start=None, fallback="UFF"):
     """`mol` minimised in a force field with its restraints held (Minimise
     with restraints): a distance by RDKit's distance constraint, k d^2 / 2 as
     the record has it (kcal mol-1 A-2, the same k); a dihedral by RDKit's
     torsion constraint, its k the record's times TORSION_K; atoms fixed as
     fixed points. MMFF94 or MMFF94s as asked, UFF where MMFF has no
-    parameters; none where UFF has none either - said. From `start`, the
+    parameters (or refused, as `fallback` says); none where UFF has none
+    either - said. From `start`, the
     places the restraints were first held at, where given; else from where
     its atoms are. Nothing between its parts is left out. Its energy is the
     force field's, without the restraints' own. Whether it converged within
@@ -1697,7 +1649,7 @@ def minimised(mol, rows, field="MMFF94", iters=STEPS, start=None):
             raise ValueError("Where its restraints were first held is not the molecule's atoms")
         for i in range(mol.GetNumAtoms()):
             conf.SetAtomPosition(i, Point3D(float(start[3 * i]), float(start[3 * i + 1]), float(start[3 * i + 2])))
-    field, make = restrained_field(mol, rows, field)
+    field, make = restrained_field(mol, rows, field, fallback)
     ff = make(-1, rows)
     converged = ff.Minimize(maxIts=iters) == 0
     places = list(ff.Positions())
@@ -1760,15 +1712,17 @@ def missed_words(missed):
     return "missed by at most " + " and ".join(said) if said else ""
 
 
-def restrained_field(mol, rows, field="MMFF94"):
+def restrained_field(mol, rows, field="MMFF94", fallback="UFF"):
     """The force field a molecule is minimised in with restraints held - MMFF94
-    or MMFF94s as asked, UFF where MMFF has no parameters, neither said where
-    UFF has none - and how to make it for a conformer with restraints held
+    or MMFF94s as asked, UFF where MMFF has no parameters (or refused, as
+    `fallback` says: FALLBACKS), neither said where UFF has none - and how to
+    make it for a conformer with restraints held
     (`make(cid, rows)`, initialised), each as the entry record states it: a
     distance by RDKit's distance constraint (k d^2 / 2, the same k), a
     dihedral by its torsion constraint (the record's k times TORSION_K),
     atoms fixed as fixed points. Nothing between the molecule's parts is
     left out."""
+    refused_without_mmff(mol, field, fallback)
     if field in ("MMFF94", "MMFF94s") and rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
         props = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant=field)
         base = lambda cid: rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, props, confId=cid, ignoreInterfragInteractions=False)
