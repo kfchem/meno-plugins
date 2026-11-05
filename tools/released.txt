@@ -1,0 +1,5 @@
+# The released Menos still in use that read this repository's catalogue and plugins: each a tag of kfchem/meno, a line
+# each. CI holds every manifest and the catalogue built from them to each one's own reading (tools/released.test.ts):
+# a Meno already out cannot be changed, so what it cannot read must never reach it. A tag is taken off once no Meno that
+# old is supported.
+v0.1.22
