@@ -1,0 +1,12 @@
+# The xTB plugin's environment, made by pixi from the lock beside this
+# file - every package pinned by its hash - when the plugin is added in
+# Settings, Plugins (docs/PLUGINS.md, docs/WORKFLOWS.md). xtb and Python
+# come from conda-forge, which has xtb for macOS, Windows and Linux.
+[workspace]
+name = "meno-plugin-xtb"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "win-64", "linux-64"]
+
+[dependencies]
+python = "3.12.*"
+xtb = "==6.7.1"

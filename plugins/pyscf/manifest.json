@@ -1,0 +1,12 @@
+{
+  "id": "pyscf",
+  "name": "PySCF",
+  "version": "0.3.1",
+  "uses": [{"name": "PySCF", "version": "2.14.0"}],
+  "description": "Works out orbitals and densities on a grid, from a Molden file.",
+  "licence": "Apache-2.0",
+  "homepage": "https://pyscf.org",
+  "environment": "pixi",
+  "kinds": [],
+  "reads": ["molden"]
+}

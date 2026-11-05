@@ -1,0 +1,56 @@
+// ORCA's input, as ORCA's manual (6.1) describes it - "General Structure of
+// the Input File" and "Input of Coordinates": simple keyword lines (!),
+// blocks (%name ... end; %maxcore with its one value; sub-blocks with their
+// own end), the geometry (* xyz charge multiplicity ... *, or * xyzfile with
+// its file), comments (# to the line's end, or to the next #). Read by Meno
+// to colour such a text, and to mark what does not read as ORCA's input:
+// a block left open, a geometry with no closing *.
+
+@top Input { (item | nl)* }
+
+item { Simple nl | Block | ValueBlock | Geometry | GeometryFile | NewJob nl }
+
+Simple { "!" Keyword* }
+
+Block { BlockName (String nl | Setting afterFirst nl | nl afterLine nl) }
+afterFirst { End | nl afterLine | ";" afterLine }
+afterLine { End | nl afterLine | statement afterStatement }
+afterStatement { nl afterLine | ";" afterLine }
+statement { Setting | SubBlock }
+Setting { Option ("=" | Value | String)+ }
+SubBlock { Option nl afterLine | Option ("=" | Value | String)+ End }
+
+ValueBlock { valueBlockName Value nl }
+valueBlockName {
+  @specialize[@name=BlockName]<BlockName, "%maxcore"> | @specialize[@name=BlockName]<BlockName, "%MaxCore"> |
+  @specialize[@name=BlockName]<BlockName, "%Maxcore"> | @specialize[@name=BlockName]<BlockName, "%MAXCORE">
+}
+
+Geometry { "*" CoordKind Value* nl (Atom? nl)* "*" nl }
+GeometryFile { "*" FileKind (Value | String)* nl }
+Atom { Element (Value | String)* }
+
+End { @specialize[@name=End]<value, "end"> | @specialize[@name=End]<value, "End"> | @specialize[@name=End]<value, "END"> }
+FileKind {
+  @specialize<word, "xyzfile"> | @specialize<word, "XYZFile"> | @specialize<word, "xyzFile"> | @specialize<word, "XYZfile"> | @specialize<word, "XYZFILE"> |
+  @specialize<word, "gzmtfile"> | @specialize<word, "GZMTFile"> | @specialize<word, "gzmtFile"> | @specialize<word, "GZMTfile"> | @specialize<word, "GZMTFILE">
+}
+Value { value }
+Option { value }
+CoordKind { word }
+Element { word }
+
+@skip { space | Comment }
+
+@tokens {
+  space { $[ \t\r]+ }
+  nl { "\n" }
+  Comment { "#" ![#\n]* "#"? }
+  Keyword { ![ \t\r\n#]+ }
+  BlockName { "%" $[a-zA-Z_] $[a-zA-Z0-9_]* }
+  NewJob { "$" $[nN] $[eE] $[wW] "_" $[jJ] $[oO] $[bB] }
+  String { '"' !["\n]* '"' }
+  word { $[a-zA-Z_] $[a-zA-Z0-9_\-+.:()\[\]]* }
+  value { ![ \t\r\n#;="%*!] ![ \t\r\n#;="]* }
+  "!" "*" "=" ";"
+}

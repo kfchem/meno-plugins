@@ -1,0 +1,27 @@
+// Gaussian's output, as Gaussian 16 printed it in runs made with Meno: what
+// a reader of it looks for (SCF Done:, the energies with thermal
+// corrections, Converged?), what says a run has gone well (YES, Stationary
+// point found., Normal termination), its warnings. Read by Meno to colour
+// such a text; any text reads as it, so nothing in it is marked.
+
+@top Output { (line? nl)* line? }
+
+line { piece+ }
+piece { WarningLine | Landmark | Success | Rule | Word }
+
+@skip { space }
+
+@tokens {
+  space { $[ \t\r]+ }
+  nl { "\n" }
+  WarningLine { "Warning" ![\n]* }
+  Landmark {
+    "SCF Done:" | "Optimization completed." | "Converged?" |
+    "Sum of electronic and zero-point Energies=" | "Sum of electronic and thermal Energies=" |
+    "Sum of electronic and thermal Enthalpies=" | "Sum of electronic and thermal Free Energies="
+  }
+  Success { "Stationary point found." | "Normal termination of Gaussian" | "YES" }
+  Rule { "-" "-"+ | "=" "="+ | "*" "*"+ | "." "."+ }
+  Word { ![ \t\r\n]+ }
+  @precedence { WarningLine, Landmark, Success, Rule, Word }
+}

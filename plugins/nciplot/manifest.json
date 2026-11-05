@@ -1,0 +1,25 @@
+{
+  "id": "nciplot",
+  "name": "NCIPLOT interface",
+  "version": "0.3.0",
+  "description": "Shows non-covalent interactions - hydrogen bonds, van der Waals contacts, steric clashes - as surfaces coloured by their strength, worked out by NCIPLOT 4 from a molecule's geometry alone. NCIPLOT is installed separately, under its own licence, and never downloaded by Meno.",
+  "licence": "Apache-2.0",
+  "homepage": "https://github.com/juliacontrerasgarcia/NCIPLOT-4.2",
+  "environment": "uv",
+  "installed": [
+    {"name": "nciplot", "label": "NCIPLOT", "files": {"macos": "nciplot", "linux": "nciplot", "windows": "nciplot.exe"}, "env": {"NCIPLOT_HOME": "{parent}"}}
+  ],
+  "steps": [
+    {
+      "kinds": ["nci"],
+      "programs": ["nciplot"],
+      "options": [
+        {"id": "grid", "label": "Grid", "type": "choice", "choices": [{"value": "coarse", "label": "Coarse (0.15 Å)"}, {"value": "standard", "label": "Standard (0.1 Å)"}, {"value": "fine", "label": "Fine (0.05 Å)"}], "default": "standard"},
+        {"id": "between", "label": "Only between molecules not bonded to each other", "type": "switch", "default": false},
+        {"id": "isovalue", "label": "Surface where the reduced density gradient is", "type": "number", "default": 0.3, "min": 0.05, "max": 1, "step": 0.05},
+        {"id": "density-cut", "label": "Left out where the density is above (a.u.)", "type": "number", "default": 0.07, "min": 0.01, "max": 0.5, "step": 0.01},
+        {"id": "range", "label": "Colour scale to ± (sign(λ2)ρ, a.u.)", "type": "number", "default": 0.07, "min": 0.01, "max": 0.2, "step": 0.01}
+      ]
+    }
+  ]
+}

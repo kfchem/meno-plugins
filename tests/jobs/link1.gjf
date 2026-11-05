@@ -1,0 +1,14 @@
+%Chk=link1.chk
+#p HF/STO-3G Opt
+
+water opt
+
+0 1
+O   0.000  0.000  0.200
+H   0.000  0.800 -0.500
+H   0.000 -0.700 -0.400
+
+--Link1--
+%Chk=link1.chk
+#p HF/3-21G Geom=AllCheck Guess=Read
+

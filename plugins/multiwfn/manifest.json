@@ -1,0 +1,31 @@
+{
+  "id": "multiwfn",
+  "name": "Multiwfn interface",
+  "version": "0.4.0",
+  "description": "Shows non-covalent interactions - hydrogen bonds, van der Waals contacts, steric clashes - as surfaces coloured by their strength, from a wavefunction or the geometry alone. Multiwfn is installed separately, under its own licence, and never downloaded by Meno; work that uses it cites its papers.",
+  "licence": "Apache-2.0",
+  "homepage": "http://sobereva.com/multiwfn",
+  "environment": "uv",
+  "installed": [
+    {"name": "multiwfn", "label": "Multiwfn", "files": {"macos": "multiwfn", "linux": "Multiwfn", "windows": "Multiwfn.exe"}, "env": {"Multiwfnpath": "{folder}"}}
+  ],
+  "depends": [
+    {"plugin": "gaussian", "versions": ">=0.4.0 <1.0.0", "optional": true, "kinds": ["gaussian-fchk"]}
+  ],
+  "steps": [
+    {
+      "kinds": ["nci"],
+      "programs": ["multiwfn"],
+      "files": ["molden", "gaussian-fchk", "wfx"],
+      "options": [
+        {"id": "density", "label": "Density", "type": "choice", "choices": [{"value": "wavefunction", "label": "Wavefunction"}, {"value": "promolecular", "label": "Promolecular"}], "default": "wavefunction"},
+        {"id": "fallback", "label": "Promolecular where a molecule has no wavefunction", "type": "switch", "default": false},
+        {"id": "grid", "label": "Grid", "type": "choice", "choices": [{"value": "low", "label": "Low (about 125,000 points)"}, {"value": "medium", "label": "Medium (about 512,000 points)"}, {"value": "high", "label": "High (about 1,728,000 points)"}], "default": "medium"},
+        {"id": "isovalue", "label": "Surface where the reduced density gradient is, from a wavefunction", "type": "number", "default": 0.5, "min": 0.05, "max": 1, "step": 0.05},
+        {"id": "isovalue-promolecular", "label": "Surface where the reduced density gradient is, promolecular", "type": "number", "default": 0.3, "min": 0.05, "max": 1, "step": 0.05},
+        {"id": "from", "label": "Colour scale from (sign(λ2)ρ, a.u.)", "type": "number", "default": -0.035, "min": -0.2, "max": 0, "step": 0.005},
+        {"id": "to", "label": "Colour scale to (sign(λ2)ρ, a.u.)", "type": "number", "default": 0.02, "min": 0, "max": 0.2, "step": 0.005}
+      ]
+    }
+  ]
+}

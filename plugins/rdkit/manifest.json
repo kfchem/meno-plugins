@@ -1,0 +1,41 @@
+{
+  "id": "rdkit",
+  "name": "RDKit",
+  "version": "0.1.21",
+  "uses": [{"name": "RDKit", "version": "2026.03.6"}],
+  "description": "Makes sense of a structure as it is drawn - its hydrogens, valence, aromatic rings, and R and S, E and Z - reads and writes SMILES, and makes structures in 3D and their conformers.",
+  "licence": "BSD-3-Clause",
+  "homepage": "https://www.rdkit.org",
+  "environment": "uv",
+  "roles": [
+    {"role": "smiles"},
+    {"role": "checks"},
+    {"role": "stereoisomers"},
+    {"role": "configurations"},
+    {
+      "role": "conformers",
+      "tries": true,
+      "options": [
+        {"id": "field", "label": "Force field", "type": "choice", "choices": [{"value": "MMFF94", "label": "MMFF94"}, {"value": "MMFF94s", "label": "MMFF94s"}, {"value": "UFF", "label": "UFF"}], "default": "MMFF94"},
+        {"id": "iters", "label": "Optimisation steps, at most", "type": "number", "default": 2000, "min": 10, "max": 100000, "step": 10},
+        {"id": "seed", "label": "Random seed", "type": "number", "default": 19781, "min": 0, "max": 2147483647, "step": 1}
+      ]
+    },
+    {"role": "drawing"}
+  ],
+  "steps": [
+    {"kinds": ["conformers"], "programs": ["python"]},
+    {
+      "kinds": ["minimise"],
+      "programs": ["python"],
+      "options": [
+        {"id": "field", "label": "Force field", "type": "choice", "choices": [{"value": "MMFF94", "label": "MMFF94"}, {"value": "MMFF94s", "label": "MMFF94s"}, {"value": "UFF", "label": "UFF"}], "default": "MMFF94"},
+        {"id": "steps", "label": "Steps at most", "type": "number", "default": 2000, "min": 1, "max": 100000},
+        {"id": "start", "label": "Start from", "type": "choice", "choices": [{"value": "as-it-comes", "label": "Where it is"}, {"value": "first", "label": "Where its restraints were first held"}], "default": "as-it-comes"}
+      ]
+    },
+    {
+      "kinds": ["descriptors"]
+    }
+  ]
+}

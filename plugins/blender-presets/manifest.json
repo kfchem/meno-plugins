@@ -1,0 +1,472 @@
+{
+  "id": "blender-presets",
+  "name": "Film looks and motions",
+  "version": "1.0.5",
+  "description": "Looks, studios and film motions made with Blender's own materials, light and keys, for the Blender plugin to render.",
+  "licence": "GPL-3.0-or-later",
+  "homepage": "https://github.com/kfchem/meno/blob/main/docs/plugins/blender-presets.md",
+  "depends": [
+    {
+      "plugin": "blender",
+      "versions": ">=0.7.0 <0.8.0",
+      "interfaces": [
+        {
+          "id": "preset",
+          "versions": ">=1.0.0 <2.0.0"
+        }
+      ]
+    }
+  ],
+  "presets": {
+    "interface": "preset",
+    "looks": [
+      {
+        "id": "clay",
+        "label": "Terracotta: unglazed, one colour or the elements'",
+        "description": "Unglazed fired clay in a studio's light: terracotta, or each element its colour.",
+        "own": true,
+        "parts": {
+          "molecules": "clay",
+          "surfaces": "matte"
+        },
+        "file": "look_clay.py"
+      },
+      {
+        "id": "gold",
+        "label": "Gold: polished metal",
+        "description": "Polished gold in a studio's light.",
+        "own": true,
+        "file": "look_gold.py"
+      },
+      {
+        "id": "silver",
+        "label": "Silver: mirror or satin",
+        "description": "Silver, mirror or satin.",
+        "own": true,
+        "file": "look_silver.py"
+      },
+      {
+        "id": "copper",
+        "label": "Copper: brushed or tarnished",
+        "description": "Copper, brushed or tarnished.",
+        "own": true,
+        "file": "look_copper.py"
+      },
+      {
+        "id": "bubble",
+        "label": "Soap bubble: clear, with thin-film colour",
+        "description": "Clear, with a thin film's colours at the rim.",
+        "parts": {
+          "sticks": "stopped"
+        },
+        "own": true,
+        "seeThrough": true,
+        "file": "look_bubble.py"
+      },
+      {
+        "id": "wood",
+        "label": "Wood: varnished, in a species",
+        "description": "Varnished wood: oak, walnut, cherry, maple, ebony, or by element.",
+        "own": true,
+        "file": "look_wood.py"
+      },
+      {
+        "id": "marble",
+        "label": "Marble: polished white stone, veined",
+        "description": "Polished white stone with veins.",
+        "own": true,
+        "file": "look_marble.py"
+      },
+      {
+        "id": "porcelain",
+        "label": "Porcelain: glazed blue-white",
+        "description": "Glazed porcelain, or a pearl's cream white.",
+        "own": true,
+        "file": "look_porcelain.py"
+      },
+      {
+        "id": "slime",
+        "label": "Slime: see-through jelly",
+        "description": "A see-through jelly in the element colours.",
+        "parts": {
+          "sticks": "stopped"
+        },
+        "own": true,
+        "seeThrough": true,
+        "file": "look_slime.py"
+      },
+      {
+        "id": "neon",
+        "label": "Neon: lit tubes",
+        "description": "Lit tubes that glow at their edges.",
+        "own": true,
+        "file": "look_neon.py"
+      },
+      {
+        "id": "xray",
+        "label": "X-ray: layers that add up",
+        "description": "See-through layers that add up.",
+        "parts": {
+          "sticks": "shown"
+        },
+        "own": true,
+        "seeThrough": true,
+        "file": "look_xray.py"
+      },
+      {
+        "id": "fur",
+        "label": "Fur: long, or short and dense as velvet",
+        "description": "Hair on every ball and stick.",
+        "own": true,
+        "file": "look_fur.py"
+      }
+    ],
+    "studios": [
+      {
+        "id": "paper",
+        "label": "Paper sweep",
+        "description": "A seamless white sweep, lit softly from above.",
+        "file": "studio_paper.py",
+        "fixed": [
+          {
+            "id": "background",
+            "value": "white",
+            "why": "The paper sweep is the background"
+          }
+        ]
+      },
+      {
+        "id": "cyclorama",
+        "label": "Dark cyclorama",
+        "description": "A dark curved wall with rims of light behind the molecules.",
+        "file": "studio_cyclorama.py",
+        "fixed": [
+          {
+            "id": "background",
+            "value": "black",
+            "why": "The cyclorama's wall is the background"
+          }
+        ]
+      }
+    ],
+    "motions": [
+      {
+        "id": "reveal",
+        "label": "Reveal: out of the dark, or developing on white",
+        "description": "A rim of light traces the molecule, then the key light comes up; on white, a pale form develops into colour.",
+        "shortest": {
+          "film": 4,
+          "loop": 6
+        },
+        "fixed": [
+          {
+            "id": "engine",
+            "value": "cycles",
+            "why": "This motion is made with light traced"
+          }
+        ],
+        "file": "motion_reveal.py"
+      },
+      {
+        "id": "pulse",
+        "label": "Pulse: a wave along the bonds",
+        "description": "A wave of light runs out along the bonds; on white, a cobalt wave throwing blue light onto the paper.",
+        "shortest": {
+          "film": 3
+        },
+        "fixed": [
+          {
+            "id": "engine",
+            "value": "cycles",
+            "why": "This motion is made with light traced"
+          }
+        ],
+        "file": "motion_pulse.py"
+      },
+      {
+        "id": "assemble",
+        "label": "Assemble: atoms fly in, bonds drawn",
+        "description": "The atoms fly in on curves and land in waves from the middle; each bond is drawn by a bright front.",
+        "shortest": {
+          "film": 5,
+          "loop": 7
+        },
+        "fixed": [
+          {
+            "id": "engine",
+            "value": "cycles",
+            "why": "This motion is made with light traced"
+          }
+        ],
+        "file": "motion_assemble.py"
+      },
+      {
+        "id": "scan",
+        "label": "Scan: a sheet of light, a hologram above it",
+        "description": "A sheet of light passes down the molecule: a hologram above it, the solid below.",
+        "shortest": {
+          "film": 5
+        },
+        "fixed": [
+          {
+            "id": "engine",
+            "value": "cycles",
+            "why": "This motion is made with light traced"
+          }
+        ],
+        "file": "motion_scan.py"
+      },
+      {
+        "id": "dissolve",
+        "label": "Dissolve: burning away into embers",
+        "description": "The molecule burns away from one side into embers; on white, amber grains cooling to graphite dust.",
+        "shortest": {
+          "film": 4,
+          "loop": 7
+        },
+        "fixed": [
+          {
+            "id": "engine",
+            "value": "cycles",
+            "why": "This motion is made with light traced"
+          }
+        ],
+        "file": "motion_dissolve.py"
+      },
+      {
+        "id": "change-ring",
+        "label": "Change, ring: atoms circle and land as the next",
+        "description": "Two molecules or more, one becoming the next in turn: the atoms rise into one ring, which turns and lets them fall into the next molecule's places - which atom lands where is the motion's own choreography.",
+        "shortest": {
+          "change": 3
+        },
+        "fixed": [
+          {
+            "id": "engine",
+            "value": "cycles",
+            "why": "This motion is made with light traced"
+          }
+        ],
+        "file": "motion_change_ring.py"
+      },
+      {
+        "id": "change-scan",
+        "label": "Change, scan: a sheet of light leaves the next",
+        "description": "Two molecules or more, one becoming the next in turn: a sheet of light passes down through the molecule, and leaves the next one above it.",
+        "shortest": {
+          "change": 3
+        },
+        "fixed": [
+          {
+            "id": "engine",
+            "value": "cycles",
+            "why": "This motion is made with light traced"
+          }
+        ],
+        "file": "motion_change_scan.py"
+      },
+      {
+        "id": "change-shatter",
+        "label": "Change, shatter: shards gather into the next",
+        "description": "Two molecules or more, one becoming the next in turn: the molecule shatters, and its shards fly together into the next one.",
+        "shortest": {
+          "change": 3
+        },
+        "fixed": [
+          {
+            "id": "engine",
+            "value": "cycles",
+            "why": "This motion is made with light traced"
+          }
+        ],
+        "file": "motion_change_shatter.py"
+      }
+    ],
+    "options": [
+      {
+        "id": "clay-colour",
+        "when": {
+          "id": "look",
+          "in": [
+            "clay"
+          ]
+        },
+        "label": "Terracotta's colour",
+        "type": "choice",
+        "choices": [
+          {
+            "value": "terracotta",
+            "label": "One colour (terracotta)"
+          },
+          {
+            "value": "elements",
+            "label": "Element colours"
+          }
+        ],
+        "default": "terracotta",
+        "section": "look"
+      },
+      {
+        "id": "silver-finish",
+        "when": {
+          "id": "look",
+          "in": [
+            "silver"
+          ]
+        },
+        "label": "Silver's finish",
+        "type": "choice",
+        "choices": [
+          {
+            "value": "mirror",
+            "label": "Mirror"
+          },
+          {
+            "value": "satin",
+            "label": "Satin"
+          }
+        ],
+        "default": "mirror",
+        "section": "look"
+      },
+      {
+        "id": "copper-finish",
+        "when": {
+          "id": "look",
+          "in": [
+            "copper"
+          ]
+        },
+        "label": "Copper's finish",
+        "type": "choice",
+        "choices": [
+          {
+            "value": "brushed",
+            "label": "Brushed"
+          },
+          {
+            "value": "tarnished",
+            "label": "Tarnished"
+          }
+        ],
+        "default": "brushed",
+        "section": "look"
+      },
+      {
+        "id": "wood",
+        "when": {
+          "id": "look",
+          "in": [
+            "wood"
+          ]
+        },
+        "label": "Wood",
+        "type": "choice",
+        "choices": [
+          {
+            "value": "oak",
+            "label": "Oak"
+          },
+          {
+            "value": "walnut",
+            "label": "Walnut"
+          },
+          {
+            "value": "cherry",
+            "label": "Cherry"
+          },
+          {
+            "value": "maple",
+            "label": "Maple"
+          },
+          {
+            "value": "ebony",
+            "label": "Ebony"
+          },
+          {
+            "value": "element",
+            "label": "By element: each its own wood"
+          }
+        ],
+        "default": "oak",
+        "section": "look"
+      },
+      {
+        "id": "marble",
+        "when": {
+          "id": "look",
+          "in": [
+            "marble"
+          ]
+        },
+        "label": "Marble's pattern",
+        "type": "choice",
+        "choices": [
+          {
+            "value": "carrara",
+            "label": "Carrara: long veins across the molecule"
+          },
+          {
+            "value": "swirl",
+            "label": "Swirls on each atom"
+          }
+        ],
+        "default": "carrara",
+        "section": "look"
+      },
+      {
+        "id": "porcelain-finish",
+        "when": {
+          "id": "look",
+          "in": [
+            "porcelain"
+          ]
+        },
+        "label": "Porcelain's finish",
+        "type": "choice",
+        "choices": [
+          {
+            "value": "porcelain",
+            "label": "Porcelain: glazed blue-white"
+          },
+          {
+            "value": "pearl",
+            "label": "Pearl: cream white with an orient"
+          }
+        ],
+        "default": "porcelain",
+        "section": "look"
+      },
+      {
+        "id": "pile",
+        "when": {
+          "id": "look",
+          "in": [
+            "fur"
+          ]
+        },
+        "label": "Pile",
+        "type": "choice",
+        "choices": [
+          {
+            "value": "long",
+            "label": "Long: fur"
+          },
+          {
+            "value": "short",
+            "label": "Short and dense: velvet"
+          }
+        ],
+        "default": "long",
+        "section": "look"
+      }
+    ],
+    "files": [
+      "motionkit.py",
+      "motion_kit.py",
+      "change.py",
+      "looks_shared.py",
+      "studio_common.py"
+    ]
+  }
+}

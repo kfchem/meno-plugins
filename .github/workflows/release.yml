@@ -1,0 +1,58 @@
+name: Release a plugin
+
+# A tag <id>-v<version>: that plugin's folder packed and released, then the catalogue made again from every plugin's
+# latest release and signed. Its signing key is the repository's (CATALOGUE_SIGNING_KEY, CATALOGUE_SIGNING_PASSWORD).
+on:
+  push:
+    tags: ["*-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: The tag is a plugin's version
+        id: tag
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          id="${tag%-v*}"; version="${tag##*-v}"
+          test -f "plugins/$id/manifest.json"
+          test "$(python3 -c "import json;print(json.load(open('plugins/$id/manifest.json'))['version'])")" = "$version"
+          echo "id=$id" >> "$GITHUB_OUTPUT"; echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: python3 -m unittest tests/test_layout.py tests/test_marks.py
+      - name: Its archive, released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I tools/pack.py "plugins/${{ steps.tag.outputs.id }}" dist > dist.txt
+          gh release create "$GITHUB_REF_NAME" "$(head -1 dist.txt)" --title "$GITHUB_REF_NAME" --notes "${{ steps.tag.outputs.id }} ${{ steps.tag.outputs.version }}" --latest=false
+      - name: The catalogue, made again and signed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ secrets.CATALOGUE_SIGNING_KEY }}
+          PASSWORD: ${{ secrets.CATALOGUE_SIGNING_PASSWORD }}
+        run: |
+          set -e
+          mkdir -p latest
+          for id in $(ls plugins); do
+            tag=$(gh release list --limit 200 --json tagName --jq "[.[].tagName | select(startswith(\"$id-v\"))] | first // empty")
+            [ -n "$tag" ] && gh release download "$tag" --pattern "$id-*.tar.gz" --dir latest
+          done
+          last=$(gh release download catalogue --pattern catalogue.json --output - 2>/dev/null | python3 -c "import json,sys;print(json.load(sys.stdin)['serial'])" || echo 0)
+          python3 -I tools/build_catalogue.py latest "https://github.com/${GITHUB_REPOSITORY}/releases/download" "$last" > catalogue.json
+          sudo apt-get install -y minisign
+          # (a key made on Windows, its secret pasted with CRLF line ends: the carriage returns taken out of the key and
+          #  the password alike, which minisign would otherwise read as part of them)
+          printf '%s' "$KEY" | tr -d '\r' > key.txt
+          printf '%s\n' "$(printf '%s' "$PASSWORD" | tr -d '\r')" | minisign -S -s key.txt -m catalogue.json -x catalogue.json.minisig
+          rm key.txt
+          # (the signature checked against the public key Meno carries, tools/catalogue.pub, before anything is uploaded:
+          #  a wrong secret fails here, never publishing a catalogue Meno would refuse)
+          minisign -V -p tools/catalogue.pub -m catalogue.json -x catalogue.json.minisig
+          gh release view catalogue >/dev/null 2>&1 || gh release create catalogue --title catalogue --notes "The catalogue Meno reads."
+          gh release upload catalogue catalogue.json catalogue.json.minisig --clobber
+          # (the release Meno's fixed address takes as latest: releases/latest/download/catalogue.json)
+          gh release edit catalogue --latest

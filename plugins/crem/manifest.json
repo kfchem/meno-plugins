@@ -1,0 +1,37 @@
+{
+  "id": "crem",
+  "name": "CReM",
+  "version": "0.1.3",
+  "uses": [{"name": "CReM", "version": "0.3.2"}, {"name": "RDKit", "version": "2026.03.6"}],
+  "description": "Makes new structures from seeds with CReM: fragments of each seed, or its hydrogens, replaced by fragments found in the same surroundings in a database of them built from ChEMBL 33, each given as the SMILES it made, with the change and how often the fragment put in occurs.",
+  "licence": "BSD-3-Clause",
+  "homepage": "https://github.com/DrrDom/crem",
+  "environment": "uv",
+  "setUpBytes": 160000000,
+  "steps": [
+    {
+      "kinds": ["generate"],
+      "seeds": true,
+      "options": [
+        {"id": "operation", "label": "Change", "type": "choice", "choices": [{"value": "mutate", "label": "Replace fragments"}, {"value": "grow", "label": "Add to it (hydrogens replaced)"}], "default": "mutate"},
+        {"id": "count", "label": "How many from each seed (at most 100)", "type": "number", "default": 20, "min": 1, "max": 100, "step": 1, "whole": true},
+        {"id": "radius", "label": "Surroundings matched (bonds out)", "type": "number", "default": 3, "min": 1, "max": 5, "step": 1, "whole": true},
+        {"id": "adds", "label": "Heavy atoms added, at most", "type": "number", "default": 2, "min": 1, "max": 10, "step": 1, "whole": true},
+        {"id": "seed", "label": "Random seed", "type": "number", "default": 1, "min": 0, "max": 2147483647, "step": 1, "whole": true}
+      ]
+    }
+  ],
+  "downloads": [
+    {
+      "file": "chembl33_sa2_f5.db.gz",
+      "name": "CReM's fragment database from ChEMBL 33 (chembl33_sa2_f5)",
+      "licence": "CC BY 4.0",
+      "url": "https://zenodo.org/api/records/16909329/files/chembl33_sa2_f5.db.gz/content",
+      "sha256": "e863c5de768df66d3bdf371895f24bf4fc0f1e0a534ca0fbde45fc0111f87283",
+      "bytes": 281251246,
+      "unpack": "gz",
+      "unpackedBytes": 2027749376,
+      "cite": "Polishchuk, J. Cheminform. 2020, 12, 28"
+    }
+  ]
+}

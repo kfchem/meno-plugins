@@ -1,0 +1,28 @@
+// ORCA's output, as ORCA 6.1 printed it in runs made with Meno, and its
+// manual's "Troubleshooting" (the error line): what a reader of it looks
+// for (FINAL SINGLE POINT ENERGY, SCF CONVERGED AFTER, the geometry's
+// convergence, the free energy and enthalpy, the frequencies), what says a
+// run has gone well (THE OPTIMIZATION HAS CONVERGED, ORCA TERMINATED
+// NORMALLY), its error. Read by Meno to colour such a text; any text reads
+// as it, so nothing in it is marked.
+
+@top Output { (line? nl)* line? }
+
+line { piece+ }
+piece { ErrorLine | Landmark | Success | Rule | Word }
+
+@skip { space }
+
+@tokens {
+  space { $[ \t\r]+ }
+  nl { "\n" }
+  ErrorLine { "ORCA finished by error termination" ![\n]* }
+  Landmark {
+    "FINAL SINGLE POINT ENERGY" | "SCF CONVERGED AFTER" | "Geometry convergence" | "OPTIMIZATION RUN DONE" |
+    "Final Gibbs free energy" | "Total enthalpy" | "VIBRATIONAL FREQUENCIES"
+  }
+  Success { "THE OPTIMIZATION HAS CONVERGED" | "ORCA TERMINATED NORMALLY" }
+  Rule { "-" "-"+ | "=" "="+ | "*" "*"+ | "." "."+ }
+  Word { ![ \t\r\n]+ }
+  @precedence { ErrorLine, Landmark, Success, Rule, Word }
+}

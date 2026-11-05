@@ -1,0 +1,22 @@
+{
+  "id": "molscribe",
+  "name": "MolScribe",
+  "version": "0.2.0",
+  "uses": [{"name": "MolScribe", "version": "1.1.1+7296a30"}],
+  "description": "Reads structures from pictures - a figure a PDF holds as a picture, a screenshot - with MolScribe, a model trained on drawings of molecules.",
+  "licence": "MIT",
+  "homepage": "https://github.com/thomas0809/MolScribe",
+  "environment": "uv",
+  "systems": ["macos", "windows"],
+  "roles": [{"role": "pictures", "unsure": {"below": 0.75, "basis": "Set on structures drawn for the purpose, clean and degraded (halved, blurred, saved as JPEG), so that the atoms of a right reading seldom fall below it."}}],
+  "downloads": [
+    {
+      "file": "swin_base_char_aux_1m680k.pth",
+      "name": "MolScribe's trained model",
+      "licence": "MIT",
+      "url": "https://huggingface.co/yujieq/MolScribe/resolve/a0189776b7415b82795c7ee81eed311bf5c8724b/swin_base_char_aux_1m680k.pth",
+      "sha256": "32821fa4ba8d17f9a92e374601438c5e757947dbf1141e9ad0ef51cccfa1c501",
+      "bytes": 1134173494
+    }
+  ]
+}

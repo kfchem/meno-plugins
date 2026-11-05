@@ -1,0 +1,18 @@
+# The MolNexTR plugin's environment: MolNexTR, which reads structures from
+# pictures, for its worker (worker.py). Set up only when the plugin is added
+# (docs/PLUGINS.md); its trained model is downloaded besides, by Meno
+# (manifest.json, `downloads`).
+#
+# MolNexTR installed from its repository at a fixed commit, pinned by the
+# archive's hash, with the releases its own requirements name - but for
+# pyonmttok, which reading a picture does not load: taken at a release built
+# for Python 3.12 (overrides.txt), then left out.
+#
+# Locked for macOS and Windows (manifest.json, `systems`), with hashes, and
+# with only what reading a picture loads and what that needs: what serves
+# and trains models (OpenNMT-py's server, SmilesPE's training, PyTorch
+# Lightning) and torch's GPU libraries for Linux are left out
+# (--no-emit-package each; installed with --no-deps).
+molnextr @ https://github.com/CYF2000127/MolNexTR/archive/6f6502b4ed9733dba8b1ee45d2da474576683194.tar.gz
+torch
+pillow

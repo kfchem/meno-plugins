@@ -1,0 +1,260 @@
+{
+  "id": "blender",
+  "name": "Blender",
+  "version": "0.7.4",
+  "uses": [
+    {
+      "name": "Blender",
+      "version": "5.2.2"
+    }
+  ],
+  "description": "Renders Meno's scene with Blender, as a picture or a film, as Meno asks; looks, studios and motions of Blender's own come from preset plugins that use it (docs/plugins/blender-presets.md).",
+  "licence": "GPL-3.0-or-later",
+  "homepage": "https://www.blender.org",
+  "environment": "uv",
+  "systems": [
+    "macos",
+    "windows"
+  ],
+  "downloads": [
+    {
+      "file": "blender-5.2.2-macos-arm64.dmg",
+      "name": "Blender 5.2.2 LTS",
+      "licence": "GPL-3.0-or-later",
+      "url": "https://download.blender.org/release/Blender5.2/blender-5.2.2-macos-arm64.dmg",
+      "sha256": "dc4125399b8bfefe283cc1624d6cfc7809d1cac20ace51072127eb371f31f210",
+      "bytes": 346286611,
+      "system": "macos",
+      "arch": "aarch64",
+      "unpack": "dmg",
+      "program": "Blender.app/Contents/MacOS/Blender",
+      "provides": "blender"
+    },
+    {
+      "file": "blender-5.2.2-windows-x64.zip",
+      "name": "Blender 5.2.2 LTS",
+      "licence": "GPL-3.0-or-later",
+      "url": "https://download.blender.org/release/Blender5.2/blender-5.2.2-windows-x64.zip",
+      "sha256": "3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535",
+      "bytes": 404453484,
+      "system": "windows",
+      "arch": "x86_64",
+      "unpack": "zip",
+      "program": "*/blender.exe",
+      "provides": "blender"
+    },
+    {
+      "file": "blender-5.2.2-windows-arm64.zip",
+      "name": "Blender 5.2.2 LTS",
+      "licence": "GPL-3.0-or-later",
+      "url": "https://download.blender.org/release/Blender5.2/blender-5.2.2-windows-arm64.zip",
+      "sha256": "2e90b53c9443cc56d2be75a61550a38e4aba942c8cded046ceff98ed58ebc67b",
+      "bytes": 274036892,
+      "system": "windows",
+      "arch": "aarch64",
+      "unpack": "zip",
+      "program": "*/blender.exe",
+      "provides": "blender"
+    }
+  ],
+  "steps": [
+    {
+      "kinds": [
+        "render"
+      ],
+      "programs": [
+        "blender"
+      ]
+    }
+  ],
+  "interfaces": [
+    {
+      "id": "preset",
+      "version": "1.0.0"
+    }
+  ],
+  "roles": [
+    {
+      "role": "render",
+      "programs": [
+        "blender"
+      ],
+      "options": [
+        {
+          "id": "engine",
+          "section": "render",
+          "when": {
+            "id": "shading",
+            "in": [
+              "lit"
+            ]
+          },
+          "label": "Renderer",
+          "type": "choice",
+          "choices": [
+            {
+              "value": "cycles",
+              "label": "Cycles: light traced"
+            },
+            {
+              "value": "eevee",
+              "label": "EEVEE: drawn in real time"
+            }
+          ],
+          "default": "cycles"
+        },
+        {
+          "id": "samples",
+          "section": "render",
+          "label": "Samples for each pixel",
+          "type": "number",
+          "default": 128,
+          "min": 1,
+          "max": 4096,
+          "step": 1,
+          "whole": true
+        },
+        {
+          "id": "denoise",
+          "section": "render",
+          "when": {
+            "id": "shading",
+            "in": [
+              "lit"
+            ]
+          },
+          "label": "Remove noise",
+          "type": "switch",
+          "default": true
+        },
+        {
+          "id": "device",
+          "section": "render",
+          "label": "Render on",
+          "type": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "label": "Automatic (the faster one)"
+            },
+            {
+              "value": "gpu",
+              "label": "Graphics processor"
+            },
+            {
+              "value": "cpu",
+              "label": "Processor"
+            }
+          ],
+          "default": "auto"
+        },
+        {
+          "id": "background",
+          "section": "scene",
+          "label": "Background",
+          "type": "choice",
+          "choices": [
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            },
+            {
+              "value": "white",
+              "label": "White"
+            },
+            {
+              "value": "black",
+              "label": "Black"
+            },
+            {
+              "value": "grey",
+              "label": "Grey"
+            }
+          ],
+          "default": "transparent"
+        },
+        {
+          "id": "colours",
+          "section": "render",
+          "label": "Colours",
+          "type": "choice",
+          "choices": [
+            {
+              "value": "neutral",
+              "label": "True to the style (Khronos PBR Neutral)"
+            },
+            {
+              "value": "agx",
+              "label": "Film-like (AgX)"
+            },
+            {
+              "value": "standard",
+              "label": "Standard"
+            }
+          ],
+          "default": "neutral"
+        },
+        {
+          "id": "key",
+          "section": "scene",
+          "label": "Key light, against the canvas's",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 10,
+          "step": 0.1,
+          "unit": "×"
+        },
+        {
+          "id": "ambient",
+          "section": "scene",
+          "label": "Light all round, against the canvas's",
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 10,
+          "step": 0.1,
+          "unit": "×"
+        },
+        {
+          "id": "softness",
+          "section": "scene",
+          "label": "Shadows' softness",
+          "type": "number",
+          "default": 10,
+          "min": 0,
+          "max": 90,
+          "step": 1,
+          "unit": "°"
+        },
+        {
+          "id": "quality",
+          "section": "render",
+          "when": {
+            "id": "kind",
+            "in": [
+              "film"
+            ]
+          },
+          "label": "A film's quality",
+          "type": "choice",
+          "choices": [
+            {
+              "value": "high",
+              "label": "High"
+            },
+            {
+              "value": "medium",
+              "label": "Medium: smaller"
+            },
+            {
+              "value": "lossless",
+              "label": "Nearly lossless: largest"
+            }
+          ],
+          "default": "high"
+        }
+      ]
+    }
+  ]
+}

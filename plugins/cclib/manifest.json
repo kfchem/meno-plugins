@@ -1,0 +1,30 @@
+{
+  "id": "cclib",
+  "name": "cclib",
+  "version": "0.2.2",
+  "uses": [{"name": "cclib", "version": "1.9rc1"}],
+  "description": "Reads the output of many calculation programs: ORCA, Gaussian, xTB, NWChem, Psi4, Q-Chem, GAMESS, Molpro and others.",
+  "licence": "BSD-3-Clause",
+  "homepage": "https://cclib.github.io",
+  "environment": "uv",
+  "kinds": [
+    {"id": "adf", "name": "ADF output", "program": "ADF", "extensions": [".out", ".log"], "marks": [{"text": "Amsterdam Density Functional", "anyCase": true}]},
+    {"id": "cfour", "name": "CFOUR output", "program": "CFOUR", "extensions": [".out", ".log"], "marks": [{"text": "CFOUR Coupled-Cluster", "anyCase": true}]},
+    {"id": "dalton", "name": "Dalton output", "program": "Dalton", "extensions": [".out", ".log"], "marks": [{"text": "Dalton - An Electronic", "anyCase": true}]},
+    {"id": "gamess", "name": "GAMESS output", "program": "GAMESS", "extensions": [".log", ".out"], "marks": [{"text": "GAMESS VERSION", "anyCase": true}, {"text": "Firefly (PC GAMESS)", "anyCase": true}]},
+    {"id": "gamess-uk", "name": "GAMESS-UK output", "program": "GAMESS-UK", "extensions": [".out", ".log"], "marks": [{"text": "G A M E S S - U K", "anyCase": true}]},
+    {"id": "gaussian", "name": "Gaussian output", "program": "Gaussian", "extensions": [".log", ".out"], "marks": [{"text": "Entering Gaussian System", "at": "line-start"}]},
+    {"id": "gaussian-fchk", "name": "Gaussian formatted checkpoint", "program": "Gaussian", "extensions": [".fchk", ".fch"], "marks": [{"text": "Number of atoms I", "at": "line-start"}]},
+    {"id": "jaguar", "name": "Jaguar output", "program": "Jaguar", "extensions": [".out", ".log"], "marks": [{"text": "Jaguar version", "anyCase": true}]},
+    {"id": "molcas", "name": "Molcas output", "program": "Molcas", "extensions": [".log", ".out"], "marks": [{"text": "MOLCAS", "anyCase": true}]},
+    {"id": "molpro", "name": "Molpro output", "program": "Molpro", "extensions": [".out", ".log"], "marks": [{"text": "PROGRAM SYSTEM MOLPRO", "anyCase": true}]},
+    {"id": "mopac", "name": "MOPAC output", "program": "MOPAC", "extensions": [".out"], "marks": [{"text": "MOPAC20", "anyCase": true}]},
+    {"id": "nwchem", "name": "NWChem output", "program": "NWChem", "extensions": [".out", ".log", ".nwo"], "marks": [{"text": "Northwest Computational Chemistry", "anyCase": true}]},
+    {"id": "orca", "name": "ORCA output", "program": "ORCA", "extensions": [".out", ".log"], "marks": [{"text": "* O R C A *"}]},
+    {"id": "psi4", "name": "Psi4 output", "program": "Psi4", "extensions": [".out", ".dat"], "marks": [{"text": "Psi4: An Open-Source", "anyCase": true}]},
+    {"id": "qchem", "name": "Q-Chem output", "program": "Q-Chem", "extensions": [".out", ".log", ".qcout"], "marks": [{"text": "Welcome to Q-Chem", "anyCase": true}]},
+    {"id": "turbomole", "name": "Turbomole output", "program": "Turbomole", "extensions": [".out", ".log"], "marks": [{"text": "TURBOMOLE", "anyCase": true}]},
+    {"id": "xtb", "name": "xTB output", "program": "xTB", "extensions": [".out", ".log"], "marks": [{"text": "| x T B |"}, {"text": "* xtb version", "at": "line-start"}]}
+  ],
+  "reads": ["adf", "cfour", "dalton", "gamess", "gamess-uk", "gaussian", "gaussian-fchk", "jaguar", "molcas", "molpro", "mopac", "nwchem", "orca", "psi4", "qchem", "turbomole", "xtb"]
+}

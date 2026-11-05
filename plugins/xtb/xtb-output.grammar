@@ -1,0 +1,25 @@
+// xTB's output, as xTB 6.7 printed it in runs made with Meno: what a
+// reader of it looks for (TOTAL ENERGY, TOTAL FREE ENERGY, HOMO-LUMO GAP,
+// SCC energy), what says a run has gone well (GEOMETRY OPTIMIZATION
+// CONVERGED, normal termination of xtb), its warnings and its errors. Read
+// by Meno to colour such a text; any text reads as it, so nothing in it is
+// marked.
+
+@top Output { (line? nl)* line? }
+
+line { piece+ }
+piece { WarningLine | ErrorLine | Landmark | Success | Rule | Word }
+
+@skip { space }
+
+@tokens {
+  space { $[ \t\r]+ }
+  nl { "\n" }
+  WarningLine { "[WARNING]" ![\n]* }
+  ErrorLine { "ERROR STOP" ![\n]* | "Error termination" ![\n]* }
+  Landmark { "TOTAL ENERGY" | "TOTAL FREE ENERGY" | "HOMO-LUMO GAP" | "SCC energy" }
+  Success { "GEOMETRY OPTIMIZATION CONVERGED" | "normal termination of xtb" }
+  Rule { "-" "-"+ | "=" "="+ | "*" "*"+ | "." "."+ }
+  Word { ![ \t\r\n]+ }
+  @precedence { WarningLine, ErrorLine, Landmark, Success, Rule, Word }
+}

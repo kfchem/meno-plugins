@@ -1,0 +1,43 @@
+// Gaussian's input, as Gaussian's "Input" page describes it: Link 0
+// commands (%), the route section (# lines), its title, the charge and
+// multiplicity and the molecule, each blank-line terminated, and any
+// further sections; --Link1-- between the steps of a job; comments (!).
+// Read by Meno to colour such a text, and to mark what does not read as
+// Gaussian's input: no route section, a molecule with no charge and
+// multiplicity line.
+
+@top Input { nl* job (Link1 nl job)* }
+
+job { (Link0 nl)* Route nl (RouteMore nl)* (blanks titled?)? }
+titled { (Title nl)+ (blanks molecular?)? }
+molecular { Molecule (blanks Extra)* blanks? }
+blanks { nl+ }
+
+Link0 { Link0Name ("=" Value*)? }
+Route { RouteStart RouteWord* }
+RouteMore { RouteWord+ }
+Molecule { ChargeLine nl (Atom nl)* }
+ChargeLine { Number+ }
+Atom { Element (Value | "=")* }
+Extra { (Text nl)+ }
+
+@skip { space | Comment }
+
+@tokens {
+  space { $[ \t\r]+ }
+  nl { "\n" }
+  Comment { "!" ![\n]* }
+  Link0Name { "%" ![ \t\r\n!=]+ }
+  RouteStart { "#" ![ \t\r\n!]* }
+  RouteWord { ![ \t\r\n!#%]+ }
+  Title { ![ \t\r\n!] ![\n!]* }
+  Number { $[+\-]? @digit+ }
+  Element { $[a-zA-Z0-9] ![ \t\r\n!,=]* }
+  Value { ![ \t\r\n!,=]+ }
+  Text { ![ \t\r\n!] ![\n!]* }
+  Link1 { "--" $[lL] $[iI] $[nN] $[kK] "1--" }
+  "="
+  @precedence { Link1, Text }
+  @precedence { Link1, Title }
+  @precedence { Link1, RouteWord }
+}

@@ -1,0 +1,18 @@
+# The REINVENT 4 plugin's environment: REINVENT 4, which samples new
+# molecules from a trained generative model, for its job (generate_job.py).
+# Set up only when the plugin is added (docs/PLUGINS.md); its prior - the
+# trained model - is downloaded besides, by Meno (manifest.json, `downloads`).
+#
+# REINVENT 4 installed from its repository at the commit of its release 4.8,
+# pinned by the archive's hash: it is published on no package index. Resolved
+# as its own installer resolves it on a Mac (pip, which leaves out the
+# CUDA index its pyproject names for torch: --no-sources), from the package
+# index's torch.
+#
+# Locked for macOS on Apple silicon, 14 or later - torch's wheels are built for
+# no earlier (manifest.json, `systems`) - with hashes:
+#   MACOSX_DEPLOYMENT_TARGET=14.0 uv pip compile --no-sources --python-version 3.12 \
+#     --python-platform aarch64-apple-darwin --generate-hashes requirements.in -o requirements.lock
+reinvent @ https://github.com/MolecularAI/REINVENT4/archive/80a8d21aefd9c0d3ec806377522effb30cfca12a.tar.gz
+# imported by REINVENT 4 (reinvent/runmodes/utils/plot.py), and added for it
+scipy

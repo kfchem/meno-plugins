@@ -1,0 +1,6 @@
+# The Blender plugin's environment: Python alone - its worker (worker.py)
+# needs no package; Blender itself, its official build, is fetched by Meno
+# beside it as the plugin is set up (the manifest's `downloads`), and
+# render.py runs in Blender's own Python.
+# Locked, with hashes, by:
+#   uv pip compile --universal --python-version 3.12 --generate-hashes requirements.in -o requirements.lock
