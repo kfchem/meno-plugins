@@ -33,7 +33,7 @@ def main():
     mol = worker.mol_of(given, worker.held_apart(given, rows))
     options = given.get("options") or {}
     field = options.get("field") or "MMFF94"
-    iters = int(options.get("steps") or worker.STEPS)
+    iters = worker.whole_in(options["steps"], "Steps at most", 1, 100000) if options.get("steps") is not None else worker.STEPS
     fallback = options.get("fallback") if options.get("fallback") in worker.FALLBACKS else "UFF"
     # (from where its restraints were first held, where the step asks so and they were: else from where its atoms are)
     start = given.get("start") if options.get("start") == "first" else None

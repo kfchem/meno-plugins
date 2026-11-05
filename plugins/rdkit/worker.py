@@ -434,30 +434,35 @@ FIELDS = ("MMFF94", "MMFF94s", "UFF")
 FALLBACKS = ("UFF", "refuse")
 
 
+def whole_in(value, label, low, high):
+    """`value` as a whole number from `low` to `high` - refused, saying so,
+    where it is none (a fraction, text) or lies outside them: never cut to
+    one, nor moved into range (the manifest marks each such option `whole`,
+    and says its range)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value != int(value):
+        raise ValueError(f"{label} is to be a whole number: {value!r} is not one")
+    if not low <= value <= high:
+        raise ValueError(f"{label} is to be from {low} to {high}: {int(value)} is not")
+    return int(value)
+
+
 def options_of(m):
     """How conformers are to be made: how many to try, as Meno sends it
     (`count`: the chemist's number, or as many as the molecule needs, which
-    Meno works out - lib/chem/conformersSought), kept to 1 to
-    MOST_CONFORMERS; and the options the manifest declares for the role
-    (roleOptions), each kept to what it may be."""
+    Meno works out - lib/chem/conformersSought), from 1 to MOST_CONFORMERS;
+    and the options the manifest declares for the role (roleOptions), each
+    as it may be. A number that is none of these is refused (`whole_in`)."""
     o = m.get("options") or {}
 
-    def number(key, default, low, high, kind=int):
-        try:
-            v = kind(o.get(key, default))
-        except (TypeError, ValueError):
-            v = default
-        return min(max(v, low), high)
+    def number(key, label, default, low, high):
+        return whole_in(o[key], label, low, high) if o.get(key) is not None else default
 
-    try:
-        count = min(max(int(m["count"]), 1), MOST_CONFORMERS) if m.get("count") is not None else None
-    except (TypeError, ValueError):
-        count = None
+    count = whole_in(m["count"], "How many conformers to try", 1, MOST_CONFORMERS) if m.get("count") is not None else None
     return {
         "count": count,
-        "seed": number("seed", SEED, 0, 2**31 - 1),
+        "seed": number("seed", "Random seed", SEED, 0, 2**31 - 1),
         "field": o.get("field") if o.get("field") in FIELDS else "MMFF94",
-        "iters": number("iters", STEPS, 10, 100000),
+        "iters": number("iters", "Optimisation steps, at most", STEPS, 10, 100000),
         "fallback": o.get("fallback") if o.get("fallback") in FALLBACKS else "UFF",
     }
 
@@ -783,55 +788,9 @@ def kekule_order(bond):
     return {Chem.BondType.SINGLE: 1, Chem.BondType.DOUBLE: 2, Chem.BondType.TRIPLE: 3}.get(bond.GetBondType(), 1)
 
 
-def mirror_of(mol):
-    """A stereoisomer's mirror image, its atoms and bonds as they are - or
-    None when it has stereo that is not known to turn in a mirror (only
-    stereocentres and axes do; double bonds stay as they are)."""
-    m = Chem.Mol(mol)
-    swap = {
-        Chem.ChiralType.CHI_TETRAHEDRAL_CW: Chem.ChiralType.CHI_TETRAHEDRAL_CCW,
-        Chem.ChiralType.CHI_TETRAHEDRAL_CCW: Chem.ChiralType.CHI_TETRAHEDRAL_CW,
-    }
-    for a in m.GetAtoms():
-        tag = a.GetChiralTag()
-        if tag in swap:
-            a.SetChiralTag(swap[tag])
-        elif tag != Chem.ChiralType.CHI_UNSPECIFIED:
-            return None
-    axes = {
-        Chem.BondStereo.STEREOATROPCW: Chem.BondStereo.STEREOATROPCCW,
-        Chem.BondStereo.STEREOATROPCCW: Chem.BondStereo.STEREOATROPCW,
-    }
-    for b in m.GetBonds():
-        if b.GetStereo() in axes:
-            b.SetStereo(axes[b.GetStereo()])
-    return m
-
-
-def smiles_from_3d(mol, frame):
-    """The SMILES a structure's 3D coordinates (its atoms', hydrogens and
-    all, as a flat list) say, stereo and all."""
-    m = Chem.AddHs(mol)
-    conf = Chem.Conformer(m.GetNumAtoms())
-    for i in range(m.GetNumAtoms()):
-        conf.SetAtomPosition(i, Point3D(frame[3 * i], frame[3 * i + 1], frame[3 * i + 2]))
-    m.RemoveAllConformers()
-    m.AddConformer(conf, assignId=True)
-    Chem.AssignStereochemistryFrom3D(m)
-    return smiles_of(m)
-
-
 def smiles_of(mol):
     """A stereoisomer's SMILES, any hydrogens drawn left out."""
     return Chem.MolToSmiles(Chem.RemoveHs(mol))
-
-
-def reflected(entry):
-    """Conformers in a mirror: every x turned about the plane x = 0."""
-    return {
-        **entry,
-        "frames": [[-v if k % 3 == 0 else v for k, v in enumerate(f)] for f in entry["frames"]],
-    }
 
 
 # --- metals ------------------------------------------------------------------
@@ -1446,33 +1405,14 @@ def method_of(mol, ids, field, stood_in, metals, eta):
     return made + ("; restrained: " + ", ".join(held) if held else "")
 
 
-def conformers_of(iso, how, made, page=False):
-    """A stereoisomer's conformers. On Meno's own page (`page`), of two
-    enantiomers the one whose SMILES comes first is made, and the other is
-    its mirror image: the same shapes and energies, whichever is asked for
-    and in whichever request. A workflow's step makes each as RDKit makes
-    it. `made` keeps what has been made, by SMILES, for the rest of the
-    request."""
+def conformers_of(iso, how, made):
+    """A stereoisomer's conformers, as RDKit makes them (`conformers`): each
+    stereoisomer made itself, an enantiomer as much as any. `made` keeps
+    what has been made, by SMILES, for the rest of the request."""
     smiles = smiles_of(iso)
-    if not page:
-        if smiles not in made:
-            made[smiles] = conformers(iso, **how)
-        return made[smiles]
-    mirror = mirror_of(iso)
-    twin = smiles_of(mirror) if mirror is not None else smiles
-    if twin >= smiles:
-        if smiles not in made:
-            made[smiles] = conformers(iso, **how)
-        return made[smiles]
-    if twin not in made:
-        made[twin] = conformers(mirror, **how)
-    entry = reflected(made[twin])
-    # (and if the mirror has not given this one after all, it is made itself)
-    if smiles_from_3d(iso, entry["frames"][0]) != smiles:
-        if smiles not in made:
-            made[smiles] = conformers(iso, **how)
-        return made[smiles]
-    return entry
+    if smiles not in made:
+        made[smiles] = conformers(iso, **how)
+    return made[smiles]
 
 
 def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(), fallback="UFF"):
@@ -1656,17 +1596,14 @@ def op_conformers(m):
     openStereo) - or, none named, of the structure as drawn. Each goes back
     with the CIP label of every stereocentre and double bond (`cip`), atom
     by atom and bond by bond, and its SMILES. Each is every conformer RDKit
-    made, in the order it embedded them (`conformers`). `onPage`, which
-    Meno's own page sends and a workflow's step never does, has an
-    enantiomer made as the mirror image of its twin (`conformers_of`); else
-    each is made itself."""
+    made, in the order it embedded them (`conformers`), each made itself."""
     drawn = read(m["molblock"])
     as_ligand_anions(drawn, eta_systems(drawn))
     made, cache = [], {}
     how = options_of(m)
     for given in m.get("isomers") or [None]:
         iso = configured(drawn, given)
-        entry = dict(conformers_of(iso, how, cache, bool(m.get("onPage"))))
+        entry = dict(conformers_of(iso, how, cache))
         rdCIPLabeler.AssignCIPLabels(iso)
         entry["cip"] = {
             "atoms": {str(a.GetIdx()): a.GetProp("_CIPCode") for a in iso.GetAtoms() if a.HasProp("_CIPCode")},

@@ -139,9 +139,8 @@ if __name__ == "__main__":
 @unittest.skipUnless(Chem, "RDKit is not installed here")
 class AWorkflowsSearch(unittest.TestCase):
     """A conformer search gives RDKit's own conformers: every one embedded and optimised, as RDKit made it, in the
-    order it embedded them - none taken for another, laid over another, renumbered or ranked. Of two enantiomers,
-    one made as the other's mirror image is Meno's page's alone, which asks for that (`onPage`), as a workflow's
-    step cannot."""
+    order it embedded them - none taken for another, laid over another, renumbered or ranked; each stereoisomer
+    made itself, an enantiomer as much as any (a mirror image, where one is wanted, is Meno's to make)."""
 
     @classmethod
     def setUpClass(cls):
@@ -167,33 +166,16 @@ class AWorkflowsSearch(unittest.TestCase):
         rows = {r["label"]: r["text"] for r in made["how"]}
         self.assertEqual(rows["Kept"], "12 of 12 embedded (12 sought)")
 
-    def test_makes_each_enantiomer_itself_and_only_the_page_its_twins_mirror_image(self):
-        # (of butan-2-ol's two enantiomers, the one whose twin's SMILES comes first: on Meno's page, its twin reflected;
-        #  in a workflow's step, embedded itself)
-        r, s = (self.worker.op_from_smiles({"smiles": x})["molblock"] for x in ("C[C@@H](O)CC", "C[C@H](O)CC"))
-        second = next(b for b in (r, s) if self.worker.smiles_of(self.worker.mirror_of(self.worker.read(b))) < self.worker.smiles_of(self.worker.read(b)))
-        reflected, used = self.worker.reflected, []
-        self.worker.reflected = lambda entry: used.append(1) or reflected(entry)
-        try:
-            self.worker.op_conformers({"molblock": second, "count": 4})
-            self.assertEqual(used, [])
-            self.worker.op_conformers({"molblock": second, "count": 4, "onPage": True})
-            self.assertEqual(used, [1])
-        finally:
-            self.worker.reflected = reflected
-
-    def test_cannot_be_asked_for_the_pages_through_its_options(self):
-        # (the step's options never carry the page's flag: its card cannot set it)
-        r, s = (self.worker.op_from_smiles({"smiles": x})["molblock"] for x in ("C[C@@H](O)CC", "C[C@H](O)CC"))
-        second = next(b for b in (r, s) if self.worker.smiles_of(self.worker.mirror_of(self.worker.read(b))) < self.worker.smiles_of(self.worker.read(b)))
-        reflected, used = self.worker.reflected, []
-        self.worker.reflected = lambda entry: used.append(1) or reflected(entry)
-        try:
-            self.worker.op_conformers({"molblock": second, "count": 4, "options": {"onPage": True, "page": True}})
-        finally:
-            self.worker.reflected = reflected
-        self.assertEqual(used, [])
+    def test_makes_each_enantiomer_itself_whatever_else_it_is_sent(self):
+        # (butan-2-ol's two enantiomers: what the page once sent to have one made as the other's mirror image, in the
+        #  request or in its options, changes nothing - and never reaches the options)
+        for smiles in ("C[C@@H](O)CC", "C[C@H](O)CC"):
+            mb = self.worker.op_from_smiles({"smiles": smiles})["molblock"]
+            plain = self.worker.op_conformers({"molblock": mb, "count": 4})
+            self.assertEqual(self.worker.op_conformers({"molblock": mb, "count": 4, "onPage": True}), plain)
+            self.assertEqual(self.worker.op_conformers({"molblock": mb, "count": 4, "options": {"onPage": True, "page": True}}), plain)
         self.assertNotIn("page", self.worker.options_of({"options": {"onPage": True, "page": True}}))
+        self.assertFalse(hasattr(self.worker, "mirror_of"))
 
     def test_says_when_it_embedded_from_random_coordinates(self):
         rows = lambda e: {r["label"]: r["text"] for r in e["how"]}
@@ -470,6 +452,67 @@ class HowManyTried(unittest.TestCase):
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
+class WholeNumbers(unittest.TestCase):
+    """A count, a seed and a number of steps are whole numbers, each in its range: the manifest marks them `whole`,
+    and one that is not - a fraction, text, one out of range - is refused, saying so, never cut to one or moved into
+    range."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def test_marks_every_number_it_takes_whole(self):
+        import json
+        manifest = json.loads((WORKER.parent / "manifest.json").read_text(encoding="utf-8"))
+        # (its roles' options, and its steps', by the role or the steps' kinds)
+        numbers = {(r["role"], o["id"]): o.get("whole") for r in manifest["roles"] for o in r.get("options") or [] if o["type"] == "number"}
+        numbers |= {("/".join(s["kinds"]), o["id"]): o.get("whole") for s in manifest["steps"] for o in s.get("options") or [] if o["type"] == "number"}
+        self.assertEqual(numbers, {("conformers", "iters"): True, ("conformers", "seed"): True, ("minimise", "steps"): True})
+
+    def test_takes_a_whole_number_in_its_range_as_it_is(self):
+        o = self.worker.options_of({"count": 12.0, "options": {"seed": 7, "iters": 10}})
+        self.assertEqual((o["count"], o["seed"], o["iters"]), (12, 7, 10))
+        self.assertEqual(self.worker.options_of({"count": 5000, "options": {"seed": 2**31 - 1, "iters": 100000}})["seed"], 2**31 - 1)
+        # (none given: the plugin's own, as before)
+        self.assertEqual((self.worker.options_of({})["seed"], self.worker.options_of({})["iters"]), (self.worker.SEED, self.worker.STEPS))
+
+    def test_refuses_a_fraction_text_or_one_out_of_range_saying_so(self):
+        for asked, said in (
+            ({"count": 2.5}, "How many conformers to try is to be a whole number: 2.5 is not one"),
+            ({"count": 0}, "How many conformers to try is to be from 1 to 5000: 0 is not"),
+            ({"count": 5001}, "How many conformers to try is to be from 1 to 5000: 5001 is not"),
+            ({"options": {"seed": 7.5}}, "Random seed is to be a whole number: 7.5 is not one"),
+            ({"options": {"seed": -1}}, "Random seed is to be from 0 to 2147483647: -1 is not"),
+            ({"options": {"seed": "7"}}, "Random seed is to be a whole number: '7' is not one"),
+            ({"options": {"iters": 9}}, "Optimisation steps, at most is to be from 10 to 100000: 9 is not"),
+            ({"options": {"iters": True}}, "Optimisation steps, at most is to be a whole number: True is not one"),
+        ):
+            with self.assertRaises(ValueError) as e:
+                self.worker.options_of(asked)
+            self.assertEqual(str(e.exception), said)
+
+    def test_a_minimise_job_refuses_steps_that_are_no_whole_number(self):
+        import json, subprocess, sys, tempfile
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        rdDistGeom.EmbedMolecule(mol, randomSeed=1)
+        entry = {
+            "atoms": [{"el": a.GetSymbol(), "x": p[0], "y": p[1], "z": p[2]} for a, p in zip(mol.GetAtoms(), mol.GetConformer().GetPositions())],
+            "bonds": [{"a1": b.GetBeginAtomIdx(), "a2": b.GetEndAtomIdx(), "order": 1} for b in mol.GetBonds()],
+        }
+        for steps, ok in ((50, True), (50.5, False), (0, False)):
+            [job] = self.worker.op_prepare({"step": "minimise", "entries": [entry], "options": {"field": "MMFF94", "steps": steps}})["jobs"]
+            with tempfile.TemporaryDirectory() as here:
+                with open(f"{here}/{job['files'][0]['name']}", "w", encoding="utf-8") as f:
+                    f.write(job["files"][0]["text"])
+                ran = subprocess.run([sys.executable, *job["args"]], cwd=here, capture_output=True, text=True)
+            self.assertEqual(ran.returncode == 0, ok, ran.stderr)
+            if not ok:
+                self.assertIn("Steps at most is to be", ran.stderr)
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
 class MetalFloor(unittest.TestCase):
     """Two atoms bonded to a metal, of different ligands, held at least NARROWEST_AT_METAL apart - only where the
     ideal polyhedra of four, five and six points are the shapes there may be - and a conformer that came out
@@ -486,10 +529,10 @@ class MetalFloor(unittest.TestCase):
         m.UpdatePropertyCache(strict=False)
         return m
 
-    def made(self, smiles, page=False, count=10):
+    def made(self, smiles, count=10):
         # (as many as Meno sends where nothing turns - lib/chem/conformersSought - or, given, as it sends that molecule)
         mb = Chem.MolToMolBlock(self.mol(smiles), kekulize=False)
-        return self.worker.op_conformers({"molblock": mb, "count": count, **({"onPage": True} if page else {})})["isomers"][0]
+        return self.worker.op_conformers({"molblock": mb, "count": count})["isomers"][0]
 
     def angles(self, entry, frame, symbol):
         import numpy as np
@@ -517,7 +560,7 @@ class MetalFloor(unittest.TestCase):
         # (the known answer: one conformer, Oh. Fe standing in for Os, one embedding stopped in a well 87.7
         #  kcal/mol above the octahedron, two Cl 62 degrees apart - under the floor, so dropped and counted; the
         #  other nine are the octahedron, relabelled, each given)
-        entry = self.made("Cl[Os-2](Cl)(Cl)(Cl)(Cl)Cl", page=True)
+        entry = self.made("Cl[Os-2](Cl)(Cl)(Cl)(Cl)Cl")
         self.assertEqual(len(entry["frames"]), 9)
         for k in range(9):
             angles, _, _, _ = self.angles(entry, k, "Os")
