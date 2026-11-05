@@ -1,0 +1,21 @@
+{
+  "id": "claude",
+  "name": "Claude",
+  "version": "0.1.0",
+  "uses": [{"name": "anthropic", "version": "2.1.0"}],
+  "description": "Talks with Claude, Anthropic's model, for a conversation on the page, by Anthropic's Messages API at api.anthropic.com: what the conversation shares goes there, with the key of the person's own Anthropic account, kept in the system's keychain.",
+  "licence": "MIT",
+  "homepage": "https://docs.anthropic.com/en/api/messages",
+  "environment": "uv",
+  "roles": [
+    {
+      "role": "language-model",
+      "hosts": ["api.anthropic.com"],
+      "options": [
+        {"id": "model", "label": "Model", "type": "choice", "choices": [{"value": "claude-opus-5-5", "label": "Claude Opus 5.5"}, {"value": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5"}, {"value": "claude-haiku-5-5", "label": "Claude Haiku 5.5"}], "default": "claude-opus-5-5", "person": true},
+        {"id": "effort", "label": "How hard it thinks", "type": "choice", "choices": [{"value": "low", "label": "Low"}, {"value": "medium", "label": "Medium"}, {"value": "high", "label": "High"}, {"value": "xhigh", "label": "Higher"}, {"value": "max", "label": "Most"}], "default": "high", "person": true},
+        {"id": "reply-tokens", "label": "A reply's length, at most (tokens)", "type": "number", "default": 16000, "min": 1024, "max": 64000, "step": 1024, "whole": true, "person": true}
+      ]
+    }
+  ]
+}

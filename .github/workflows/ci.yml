@@ -42,6 +42,9 @@ jobs:
           - plugin: cclib
             needs: cclib
             tests: tests/test_reader_cclib.py
+          - plugin: claude
+            needs: anthropic
+            tests: tests/test_plugin_claude.py
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: |
