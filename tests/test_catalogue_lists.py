@@ -46,8 +46,12 @@ class Lists(unittest.TestCase):
             plugin("newrole", roles=[{"role": "a-role-no-meno-knows-yet"}]),
             plugin("newsystem", systems=["a-system-no-meno-knows"]),
             plugin("newkind", steps=[{"kinds": ["Not-A-Kind"]}]),
+            # (one known role beside an unknown one: still one the oldest Meno does not read whole)
+            plugin("mixedroles", roles=[{"role": known}, {"role": "language-model"}]),
+            # (a kind it reads outside the pattern)
+            plugin("newread", reads=["Bad Kind"]),
         ])
-        self.assertEqual([e["id"] for e in full["plugins"]], ["known", "newkind", "newrole", "newsystem"])
+        self.assertEqual([e["id"] for e in full["plugins"]], ["known", "mixedroles", "newkind", "newread", "newrole", "newsystem"])
         self.assertEqual([e["id"] for e in oldest["plugins"]], ["known"])
         self.assertEqual((oldest["issued"], oldest["schema"]), (full["issued"], full["schema"]))
 
