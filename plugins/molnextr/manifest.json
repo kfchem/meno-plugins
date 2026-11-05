@@ -1,0 +1,22 @@
+{
+  "id": "molnextr",
+  "name": "MolNexTR",
+  "version": "0.2.0",
+  "uses": [{"name": "MolNexTR", "version": "1.0.0+6f6502b"}],
+  "description": "Reads structures from pictures - a figure a PDF holds as a picture, a screenshot - with MolNexTR, a model trained on drawings of molecules.",
+  "licence": "Apache-2.0",
+  "homepage": "https://github.com/CYF2000127/MolNexTR",
+  "environment": "uv",
+  "systems": ["macos", "windows"],
+  "roles": [{"role": "pictures", "unsure": {"below": 0.45, "basis": "Set on structures drawn for the purpose, clean and degraded (halved, blurred, saved as JPEG), so that the atoms of a right reading seldom fall below it."}}],
+  "downloads": [
+    {
+      "file": "molnextr_best.pth",
+      "name": "MolNexTR's trained model",
+      "licence": "Apache-2.0",
+      "url": "https://huggingface.co/datasets/CYF200127/MolNexTR/resolve/9ac2da6fa553e1d053af3d8d534b8a6c74b79749/molnextr_best.pth",
+      "sha256": "5990bc19aaafa5cf44e9d04e06fb8e2b5aea50c66e1e925f662bdff7d2a6422c",
+      "bytes": 1134334833
+    }
+  ]
+}

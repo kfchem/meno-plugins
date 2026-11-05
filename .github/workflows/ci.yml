@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  plain:
+    # Each plugin's tests that need Python alone, and the repository's own: layout, marks, archives.
+    name: Plugins' tests (Python alone)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: |
+          set -e
+          for t in tests/test_layout.py tests/test_versions.py tests/test_marks.py tests/test_plugin_gaussian.py tests/test_reader_gaussian.py \
+                   tests/test_plugin_orca.py tests/test_reader_orca.py tests/test_plugin_xtb.py tests/test_reader_xtb.py \
+                   tests/test_plugin_crest.py tests/test_plugin_blender.py tests/test_plugin_blender_presets.py \
+                   tests/test_plugin_nci.py tests/test_plugin_pictures.py tests/test_plugin_reinvent.py \
+                   tests/test_plugin_crem.py tests/test_charge_multiplicity.py; do
+            python3 -m unittest "$t"
+          done
+
+  locked:
+    # The tests that need a plugin's packages, each in an environment installed from its lock.
+    name: Plugins (each in its locked environment)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - plugin: rdkit
+            needs: rdkit
+            tests: tests/test_plugin_rdkit.py tests/test_chem_worker.py
+          - plugin: crem
+            needs: crem
+            tests: tests/test_plugin_crem.py
+          - plugin: cclib
+            needs: cclib
+            tests: tests/test_reader_cclib.py
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # (Meno beside it: what a test checks against Meno's own, as the RDKit plugin's radii - MENO_CHECKOUT)
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: kfchem/meno
+          path: meno
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/env"
+          "$RUNNER_TEMP/env/bin/python" -m pip install --require-hashes --no-deps -r plugins/${{ matrix.plugin }}/requirements.lock
+      - run: '"$RUNNER_TEMP/env/bin/python" -c "import ${{ matrix.needs }}"'
+      - run: '"$RUNNER_TEMP/env/bin/python" -m unittest ${{ matrix.tests }}'
+        env:
+          MENO_CHECKOUT: ${{ github.workspace }}/meno
+
+  contract:
+    # Each manifest as Meno takes it: Meno's own reading of a manifest, from its main.
+    name: Manifests as Meno takes them
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: plugins-repo
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: kfchem/meno
+          path: meno
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: meno
+      - run: cp plugins-repo/tools/contract.test.ts meno/src/lib/plugins/contract.test.ts
+      - run: npx --no-install vitest run src/lib/plugins/contract.test.ts
+        working-directory: meno
+        env:
+          PLUGINS_DIR: ${{ github.workspace }}/plugins-repo/plugins
+      # Meno's own test of the line between core and plugins, on these plugins: no word they declare or say is in
+      # Meno's core.
+      - run: npx --no-install vitest run src/lib/plugins/boundary.test.ts
+        working-directory: meno
+        env:
+          MENO_PLUGINS_DIR: ${{ github.workspace }}/plugins-repo/plugins

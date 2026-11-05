@@ -1,0 +1,17 @@
+# The MolScribe plugin's environment: MolScribe, which reads structures from
+# pictures, for its worker (worker.py). Set up only when the plugin is added
+# (docs/PLUGINS.md); its trained model is downloaded besides, by Meno
+# (manifest.json, `downloads`).
+#
+# MolScribe installed from its repository at a fixed commit, pinned by the
+# archive's hash, with the releases its own requirements name.
+#
+# Locked for macOS and Windows (manifest.json, `systems`), with hashes, and
+# with only what reading a picture loads and what that needs: what serves
+# and trains models (OpenNMT-py's server, SmilesPE's training) and torch's
+# GPU libraries for Linux are left out (--no-emit-package each; installed
+# with --no-deps).
+molscribe @ https://github.com/thomas0809/MolScribe/archive/7296a30413eb55436702011efdff78131f66d162.tar.gz
+torch
+numpy<2
+pillow

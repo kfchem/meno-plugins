@@ -1,0 +1,12 @@
+# The CReM plugin's environment: CReM, which makes new molecules from seeds by
+# replacing, adding and linking fragments found in a database of them, and
+# RDKit, which it is built on. Set up only when the plugin is added
+# (docs/PLUGINS.md); its fragment database is downloaded besides, by Meno
+# (manifest.json, `downloads`).
+# Locked for every platform, with hashes, by:
+#   uv pip compile --universal --python-version 3.12 --generate-hashes requirements.in -o requirements.lock
+crem==0.3.2
+# the same RDKit release as the RDKit plugin's (its requirements.lock): the
+# SMILES CReM writes are read back in Meno by the plugin reading SMILES, the
+# RDKit plugin, so one RDKit release writes them and reads them
+rdkit==2026.3.6

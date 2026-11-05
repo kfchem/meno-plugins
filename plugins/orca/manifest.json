@@ -1,0 +1,173 @@
+{
+  "id": "orca",
+  "name": "ORCA interface",
+  "version": "0.5.4",
+  "description": "Optimises molecules in 3D, and works out their energies and vibrations, with ORCA - installed separately, under its own licence, and never downloaded by Meno.",
+  "licence": "Apache-2.0",
+  "homepage": "https://www.faccts.de/orca/",
+  "environment": "uv",
+  "kinds": [
+    {"id": "orca-input", "name": "ORCA input", "extensions": [".inp"], "lines": ["!", "%", "*"], "grammar": {"file": "orca-input.grammar", "tones": {"Keyword": "keyword", "BlockName": "keyword", "End": "keyword", "CoordKind": "keyword", "FileKind": "keyword", "NewJob": "keyword", "Option": "property", "Element": "tag", "Value": "value", "String": "string", "Comment": "comment"}}},
+    {"id": "orca", "name": "ORCA output", "program": "ORCA", "writtenBy": "orca", "extensions": [".out", ".log"], "marks": [{"text": "* O R C A *"}], "grammar": {"file": "orca-output.grammar", "tones": {"ErrorLine": "error", "Landmark": "landmark", "Success": "success", "Rule": "comment", "Word": "value"}}}
+  ],
+  "reads": ["orca"],
+  "installed": [
+    {"name": "orca", "label": "ORCA", "files": {"macos": "orca", "linux": "orca", "windows": "orca.exe"}, "path": ["{folder}"], "beside": {"orca_2aim": {"macos": "orca_2aim", "linux": "orca_2aim", "windows": "orca_2aim.exe"}}, "parallel": "processes"}
+  ],
+  "depends": [{"plugin": "xtb", "versions": ">=0.1.4 <0.2.0", "optional": true, "programs": [{"program": "xtb", "env": "XTBEXE"}]}],
+  "xyzEnergies": [{"id": "orca", "pattern": "(?:^|\\s)E\\s*[:=]?\\s*(-?\\d+\\.\\d+(?:[eE][-+]?\\d+)?)", "unit": "hartree"}],
+  "quotedEnergies": [{"id": "final-single-point", "pattern": "^\\s*FINAL SINGLE POINT ENERGY\\s+(?<value>[-+]?\\d+\\.\\d+(?:[eE][-+]?\\d+)?)\\s*$", "name": "Final single point energy", "unit": "hartree"}],
+  "xyzSteps": [{"id": "orca-opt", "file": "*_trj.xyz", "comment": "^Coordinates from ORCA-job \\S+ E\\s+-?\\d"}],
+  "steps": [
+    {
+      "kinds": ["optimise", "energy"],
+      "programs": ["orca"],
+      "options": [
+        {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
+        {"id": "basis", "label": "Basis set", "type": "text", "default": "def2-SVP"},
+        {"id": "dispersion", "label": "Dispersion correction", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "D3BJ", "label": "D3 with Becke-Johnson damping (D3BJ)"}, {"value": "D4", "label": "D4"}], "default": "D3BJ"},
+        {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "CPCM", "label": "C-PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
+        {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["CPCM", "SMD"]}, "choices": [
+          {"value": "water", "label": "Water"},
+          {"value": "acetonitrile", "label": "Acetonitrile"},
+          {"value": "acetone", "label": "Acetone"},
+          {"value": "benzene", "label": "Benzene"},
+          {"value": "chloroform", "label": "Chloroform"},
+          {"value": "dichloromethane", "label": "Dichloromethane"},
+          {"value": "dimethylformamide", "label": "DMF"},
+          {"value": "dimethylsulfoxide", "label": "DMSO"},
+          {"value": "diethylether", "label": "Diethyl ether"},
+          {"value": "ethanol", "label": "Ethanol"},
+          {"value": "ethylacetate", "label": "Ethyl acetate"},
+          {"value": "hexane", "label": "Hexane"},
+          {"value": "methanol", "label": "Methanol"},
+          {"value": "tetrahydrofuran", "label": "THF"},
+          {"value": "toluene", "label": "Toluene"},
+          {"value": "1,4-dioxane", "label": "1,4-Dioxane"},
+          {"value": "ccl4", "label": "Carbon tetrachloride"},
+          {"value": "pyridine", "label": "Pyridine"},
+          {"value": "nitromethane", "label": "Nitromethane"},
+          {"value": "cyclohexane", "label": "Cyclohexane"},
+          {"value": "1-octanol", "label": "1-Octanol"},
+          {"value": "2-propanol", "label": "2-Propanol"}
+        ], "default": "water"},
+        {"id": "keywords", "label": "More keywords", "type": "text", "default": ""},
+        {"id": "maxcore", "label": "Memory for each core (%maxcore, MB; 0 leaves it to ORCA)", "type": "number", "default": 0, "unset": 0, "min": 0, "step": 500, "whole": true},
+        {"id": "wavefunction", "label": "Keep the wavefunction", "type": "switch", "default": true}
+      ]
+    },
+    {
+      "kinds": ["frequencies"],
+      "programs": ["orca"],
+      "options": [
+        {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
+        {"id": "basis", "label": "Basis set", "type": "text", "default": "def2-SVP"},
+        {"id": "dispersion", "label": "Dispersion correction", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "D3BJ", "label": "D3 with Becke-Johnson damping (D3BJ)"}, {"value": "D4", "label": "D4"}], "default": "D3BJ"},
+        {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "CPCM", "label": "C-PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
+        {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["CPCM", "SMD"]}, "choices": [
+          {"value": "water", "label": "Water"},
+          {"value": "acetonitrile", "label": "Acetonitrile"},
+          {"value": "acetone", "label": "Acetone"},
+          {"value": "benzene", "label": "Benzene"},
+          {"value": "chloroform", "label": "Chloroform"},
+          {"value": "dichloromethane", "label": "Dichloromethane"},
+          {"value": "dimethylformamide", "label": "DMF"},
+          {"value": "dimethylsulfoxide", "label": "DMSO"},
+          {"value": "diethylether", "label": "Diethyl ether"},
+          {"value": "ethanol", "label": "Ethanol"},
+          {"value": "ethylacetate", "label": "Ethyl acetate"},
+          {"value": "hexane", "label": "Hexane"},
+          {"value": "methanol", "label": "Methanol"},
+          {"value": "tetrahydrofuran", "label": "THF"},
+          {"value": "toluene", "label": "Toluene"},
+          {"value": "1,4-dioxane", "label": "1,4-Dioxane"},
+          {"value": "ccl4", "label": "Carbon tetrachloride"},
+          {"value": "pyridine", "label": "Pyridine"},
+          {"value": "nitromethane", "label": "Nitromethane"},
+          {"value": "cyclohexane", "label": "Cyclohexane"},
+          {"value": "1-octanol", "label": "1-Octanol"},
+          {"value": "2-propanol", "label": "2-Propanol"}
+        ], "default": "water"},
+        {"id": "keywords", "label": "More keywords", "type": "text", "default": ""},
+        {"id": "maxcore", "label": "Memory for each core (%maxcore, MB; 0 leaves it to ORCA)", "type": "number", "default": 0, "unset": 0, "min": 0, "step": 500, "whole": true},
+        {"id": "vibrations", "label": "Low-frequency vibrations", "type": "choice", "choices": [{"value": "none", "label": "ORCA's own"}, {"value": "rrho", "label": "Harmonic (RRHO)"}], "default": "none"},
+        {"id": "wavefunction", "label": "Keep the wavefunction", "type": "switch", "default": true}
+      ]
+    },
+    {"kinds": ["path-search"], "programs": ["orca"], "options": [{"id": "method", "label": "Method", "type": "text", "default": "NATIVE-XTB2"}, {"id": "basis", "label": "Basis set", "type": "text", "default": ""}, {"id": "run", "label": "Path", "type": "choice", "choices": [{"value": "NEB-TS", "label": "A band, its highest point refined (NEB-TS)"}, {"value": "ZOOM-NEB-TS", "label": "A band, a finer one about its highest point, that refined (ZOOM-NEB-TS)"}], "default": "NEB-TS"}, {"id": "images", "label": "Images between the ends (NImages)", "type": "number", "default": 8, "min": 1, "step": 1, "whole": true}, {"id": "maxiter", "label": "Steps for refining its highest point (%geom MaxIter; 0 leaves it to ORCA)", "type": "number", "default": 0, "unset": 0, "min": 0, "step": 50, "whole": true}, {"id": "keywords", "label": "More keywords", "type": "text", "default": ""}, {"id": "maxcore", "label": "Memory for each core (%maxcore, MB; 0 leaves it to ORCA)", "type": "number", "default": 0, "unset": 0, "min": 0, "step": 500, "whole": true}]},
+    {
+      "kinds": ["reaction-path"],
+      "programs": ["orca"],
+      "options": [
+        {"id": "method", "label": "Method", "type": "text", "default": ""},
+        {"id": "basis", "label": "Basis set", "type": "text", "default": ""},
+        {"id": "dispersion", "label": "Dispersion correction", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "D3BJ", "label": "D3 with Becke-Johnson damping (D3BJ)"}, {"value": "D4", "label": "D4"}], "default": "none"},
+        {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "CPCM", "label": "C-PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
+        {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["CPCM", "SMD"]}, "choices": [
+          {"value": "water", "label": "Water"},
+          {"value": "acetonitrile", "label": "Acetonitrile"},
+          {"value": "acetone", "label": "Acetone"},
+          {"value": "benzene", "label": "Benzene"},
+          {"value": "chloroform", "label": "Chloroform"},
+          {"value": "dichloromethane", "label": "Dichloromethane"},
+          {"value": "dimethylformamide", "label": "DMF"},
+          {"value": "dimethylsulfoxide", "label": "DMSO"},
+          {"value": "diethylether", "label": "Diethyl ether"},
+          {"value": "ethanol", "label": "Ethanol"},
+          {"value": "ethylacetate", "label": "Ethyl acetate"},
+          {"value": "hexane", "label": "Hexane"},
+          {"value": "methanol", "label": "Methanol"},
+          {"value": "tetrahydrofuran", "label": "THF"},
+          {"value": "toluene", "label": "Toluene"},
+          {"value": "1,4-dioxane", "label": "1,4-Dioxane"},
+          {"value": "ccl4", "label": "Carbon tetrachloride"},
+          {"value": "pyridine", "label": "Pyridine"},
+          {"value": "nitromethane", "label": "Nitromethane"},
+          {"value": "cyclohexane", "label": "Cyclohexane"},
+          {"value": "1-octanol", "label": "1-Octanol"},
+          {"value": "2-propanol", "label": "2-Propanol"}
+        ], "default": "water"},
+        {"id": "keywords", "label": "More keywords", "type": "text", "default": ""},
+        {"id": "maxiter", "label": "Steps each way (%irc MaxIter; 0 leaves it to ORCA)", "type": "number", "default": 0, "unset": 0, "min": 0, "step": 50, "whole": true},
+        {"id": "maxcore", "label": "Memory for each core (%maxcore, MB; 0 leaves it to ORCA)", "type": "number", "default": 0, "unset": 0, "min": 0, "step": 500, "whole": true}
+      ]
+    },
+    {
+      "kinds": ["saddle-point"],
+      "programs": ["orca"],
+      "options": [
+        {"id": "method", "label": "Method", "type": "text", "default": ""},
+        {"id": "basis", "label": "Basis set", "type": "text", "default": ""},
+        {"id": "dispersion", "label": "Dispersion correction", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "D3BJ", "label": "D3 with Becke-Johnson damping (D3BJ)"}, {"value": "D4", "label": "D4"}], "default": "none"},
+        {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "CPCM", "label": "C-PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
+        {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["CPCM", "SMD"]}, "choices": [
+          {"value": "water", "label": "Water"},
+          {"value": "acetonitrile", "label": "Acetonitrile"},
+          {"value": "acetone", "label": "Acetone"},
+          {"value": "benzene", "label": "Benzene"},
+          {"value": "chloroform", "label": "Chloroform"},
+          {"value": "dichloromethane", "label": "Dichloromethane"},
+          {"value": "dimethylformamide", "label": "DMF"},
+          {"value": "dimethylsulfoxide", "label": "DMSO"},
+          {"value": "diethylether", "label": "Diethyl ether"},
+          {"value": "ethanol", "label": "Ethanol"},
+          {"value": "ethylacetate", "label": "Ethyl acetate"},
+          {"value": "hexane", "label": "Hexane"},
+          {"value": "methanol", "label": "Methanol"},
+          {"value": "tetrahydrofuran", "label": "THF"},
+          {"value": "toluene", "label": "Toluene"},
+          {"value": "1,4-dioxane", "label": "1,4-Dioxane"},
+          {"value": "ccl4", "label": "Carbon tetrachloride"},
+          {"value": "pyridine", "label": "Pyridine"},
+          {"value": "nitromethane", "label": "Nitromethane"},
+          {"value": "cyclohexane", "label": "Cyclohexane"},
+          {"value": "1-octanol", "label": "1-Octanol"},
+          {"value": "2-propanol", "label": "2-Propanol"}
+        ], "default": "water"},
+        {"id": "keywords", "label": "More keywords", "type": "text", "default": ""},
+        {"id": "hessian", "label": "First Hessian", "type": "choice", "choices": [{"value": "computed", "label": "Computed at the start (Calc_Hess)"}, {"value": "model", "label": "ORCA's model Hessian"}], "default": "computed"},
+        {"id": "maxcore", "label": "Memory for each core (%maxcore, MB; 0 leaves it to ORCA)", "type": "number", "default": 0, "unset": 0, "min": 0, "step": 500, "whole": true}
+      ]
+    }
+  ]
+}

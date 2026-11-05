@@ -1,0 +1,23 @@
+{
+  "about": "Programs' outputs the readers' tests read, where they are in calc-samples/ (git-ignored: no program's output is committed). Each from cclib's regression data (BSD-3-Clause, https://github.com/cclib/cclib/tree/master/data), fetched by hand, with the kind Meno should tell it as with the plugins added, and whether it holds a geometry (it does unless it says not).",
+  "from": "https://raw.githubusercontent.com/cclib/cclib/master/data/",
+  "samples": [
+    { "file": "ADF/dvb_sp_2007.adfout", "source": "ADF/basicADF2007.01/dvb_sp.adfout", "kind": "adf" },
+    { "file": "ADF/dvb_sp_2013.adfout", "source": "ADF/basicADF2013.01/dvb_sp.adfout", "kind": "adf" },
+    { "file": "CFOUR/dvb_rohf_sp.c4", "source": "CFOUR/basicCFOUR2.1/dvb_rohf_sp.c4", "kind": "cfour" },
+    { "file": "DALTON/dvb_bp86_2018.out", "source": "DALTON/basicDALTON-2018/dvb_dispersion_bp86_d3zero.out", "kind": "dalton" },
+    { "file": "GAMESS/dvb_sp_us2018.out", "source": "GAMESS/basicGAMESS-US2018/dvb_sp.out", "kind": "gamess" },
+    { "file": "GAMESS/dvb_bp86_firefly81.out", "source": "GAMESS/basicFirefly8.1/dvb_dispersion_bp86_d3zero.out", "kind": "gamess" },
+    { "file": "GAMESS-UK/dvb_sp_hf.out", "source": "GAMESS-UK/basicGAMESS-UK8.0/dvb_sp_hf.out", "kind": "gamess-uk" },
+    { "file": "Jaguar/dvb_un_sp_70.out", "source": "Jaguar/basicJaguar7.0/dvb_un_sp.out", "kind": "jaguar" },
+    { "file": "Jaguar/dvb_gopt_hf_133.out", "source": "Jaguar/basicJaguar13.3/dvb_gopt_hf.out", "kind": "jaguar" },
+    { "file": "MOPAC/dvb_gopt.out", "source": "MOPAC/basicMOPAC2016/dvb_gopt.out", "kind": "mopac" },
+    { "file": "Molcas/dvb_sp.out", "source": "Molcas/basicOpenMolcas18.0/dvb_sp.out", "kind": "molcas" },
+    { "file": "Molpro/dvb_sphf_2006.out", "source": "Molpro/basicMolpro2006/dvb_sphf.out", "kind": "molpro" },
+    { "file": "NWChem/dvb_sp_hf.out", "source": "NWChem/basicNWChem7.0/dvb_sp_hf.out", "kind": "nwchem" },
+    { "file": "Psi4/dvb_sp_rhf.out", "source": "Psi4/basicPsi4-1.7/dvb_sp_rhf.out", "kind": "psi4" },
+    { "file": "QChem/water_hf_cosmo.out", "source": "QChem/basicQChem6.0/water_hf_solvent_cosmo.out", "kind": "qchem" },
+    { "file": "Turbomole/dscf_75.out", "source": "Turbomole/basicTurbomole7.5/dvb_sp/dscf.out", "kind": "turbomole" },
+    { "file": "XTB/dvb_sp.out", "source": "XTB/basicXTB6.6.1/dvb_sp/dvb_sp.out", "kind": "xtb", "geometry": false }
+  ]
+}

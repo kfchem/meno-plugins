@@ -1,0 +1,4 @@
+# The ORCA plugin's environment: Python alone - its worker (worker.py)
+# needs no package, and ORCA itself is installed separately, never by Meno.
+# Locked, with hashes, by:
+#   uv pip compile --universal --python-version 3.12 --generate-hashes requirements.in -o requirements.lock

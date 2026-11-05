@@ -1,0 +1,31 @@
+# Whether the catalogue's signing secrets are the key and the password of tools/catalogue.pub - run by hand, before a
+# first tag or after the secrets are entered again: a throwaway file signed with them, as release.yml signs the
+# catalogue (carriage returns stripped from both), and checked against the public key. It says only yes or no, and
+# fails on no; it uploads, publishes and releases nothing.
+name: Check the signing key
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Sign a throwaway file, and check it against catalogue.pub
+        env:
+          KEY: ${{ secrets.CATALOGUE_SIGNING_KEY }}
+          PASSWORD: ${{ secrets.CATALOGUE_SIGNING_PASSWORD }}
+        run: |
+          sudo apt-get install -y -qq minisign >/dev/null 2>&1
+          dir=$(mktemp -d)
+          printf '%s' "$KEY" | tr -d '\r' > "$dir/key.txt"
+          printf 'a throwaway file\n' > "$dir/file.txt"
+          if printf '%s\n' "$(printf '%s' "$PASSWORD" | tr -d '\r')" | minisign -S -s "$dir/key.txt" -m "$dir/file.txt" -x "$dir/file.minisig" >/dev/null 2>&1 \
+            && minisign -V -p tools/catalogue.pub -m "$dir/file.txt" -x "$dir/file.minisig" >/dev/null 2>&1; then
+            said=yes
+          else
+            said=no
+          fi
+          rm -rf "$dir"
+          echo "key and password pair with catalogue.pub: $said"
+          [ "$said" = yes ]
