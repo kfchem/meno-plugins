@@ -263,10 +263,11 @@ class ChemWorkerTest(unittest.TestCase):
         self.assertEqual(len(made["frames"]), 5)
         raw = ask("conformers", molblock=PCPA, count=5, options={"field": "MMFF94s", "iters": 300, "seed": 7})["result"]["isomers"][0]
         self.assertEqual(raw["frames"], made["frames"])
-        # (what it may not be, kept to what it may: a force field it does not know, the default)
-        odd = ask("conformers", molblock=PCPA, count=2, options={"field": "GAFF", "iters": 1})["result"]["isomers"][0]
+        # (a force field it does not know: the default; a number out of its range: refused, saying so, never moved into it)
+        odd = ask("conformers", molblock=PCPA, count=2, options={"field": "GAFF"})["result"]["isomers"][0]
         self.assertEqual(odd["field"], "MMFF94")
-        self.assertIn("at most 10 steps", {r["label"]: r["text"] for r in odd["how"]}["Optimised"])
+        refused = ask("conformers", molblock=PCPA, count=2, options={"iters": 1})
+        self.assertEqual((refused["ok"], refused["error"]), (False, "Optimisation steps, at most is to be from 10 to 100000: 1 is not"))
 
     def test_makes_conformers_keeping_the_atoms_and_the_drawn_wedge(self):
         made = ask("conformers", molblock=PCPA, count=8)["result"]["isomers"]

@@ -430,30 +430,35 @@ STEPS = 2000
 FIELDS = ("MMFF94", "MMFF94s", "UFF")
 
 
+def whole_in(value, label, low, high):
+    """`value` as a whole number from `low` to `high` - refused, saying so,
+    where it is none (a fraction, text) or lies outside them: never cut to
+    one, nor moved into range (the manifest marks each such option `whole`,
+    and says its range)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value != int(value):
+        raise ValueError(f"{label} is to be a whole number: {value!r} is not one")
+    if not low <= value <= high:
+        raise ValueError(f"{label} is to be from {low} to {high}: {int(value)} is not")
+    return int(value)
+
+
 def options_of(m):
     """How conformers are to be made: how many to try, as Meno sends it
     (`count`: the chemist's number, or as many as the molecule needs, which
-    Meno works out - lib/chem/conformersSought), kept to 1 to
-    MOST_CONFORMERS; and the options the manifest declares for the role
-    (roleOptions), each kept to what it may be."""
+    Meno works out - lib/chem/conformersSought), from 1 to MOST_CONFORMERS;
+    and the options the manifest declares for the role (roleOptions), each
+    as it may be. A number that is none of these is refused (`whole_in`)."""
     o = m.get("options") or {}
 
-    def number(key, default, low, high, kind=int):
-        try:
-            v = kind(o.get(key, default))
-        except (TypeError, ValueError):
-            v = default
-        return min(max(v, low), high)
+    def number(key, label, default, low, high):
+        return whole_in(o[key], label, low, high) if o.get(key) is not None else default
 
-    try:
-        count = min(max(int(m["count"]), 1), MOST_CONFORMERS) if m.get("count") is not None else None
-    except (TypeError, ValueError):
-        count = None
+    count = whole_in(m["count"], "How many conformers to try", 1, MOST_CONFORMERS) if m.get("count") is not None else None
     return {
         "count": count,
-        "seed": number("seed", SEED, 0, 2**31 - 1),
+        "seed": number("seed", "Random seed", SEED, 0, 2**31 - 1),
         "field": o.get("field") if o.get("field") in FIELDS else "MMFF94",
-        "iters": number("iters", STEPS, 10, 100000),
+        "iters": number("iters", "Optimisation steps, at most", STEPS, 10, 100000),
     }
 #: Kilocalories per mole in a hartree: energies go back in hartrees. The hartree (4.3597447222071e-18 J,
 #: CODATA 2018) times the Avogadro constant (6.02214076e23 per mole, exact, SI 2019), over the
