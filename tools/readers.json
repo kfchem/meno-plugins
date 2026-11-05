@@ -1,0 +1,7 @@
+{
+  "about": "What the oldest released Meno still in use (tools/released.txt) reads in a catalogue's entry: catalogue.json holds only the entries it reads whole; catalogue-2.json holds every entry, for Meno 0.1.23 and later. Taken from that Meno's own code (lib/plugins/roles ROLES, lib/plugins/manifest SYSTEMS, lib/plugins/catalogue KIND); tools/released.test.ts holds catalogue.json to its real reading.",
+  "meno": "v0.1.22",
+  "roles": ["smiles", "checks", "pictures", "stereoisomers", "configurations", "conformers", "drawing", "render"],
+  "systems": ["macos", "windows", "linux"],
+  "kind": "^[a-z][a-z0-9-]{0,39}$"
+}

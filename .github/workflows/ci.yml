@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: |
           set -e
-          for t in tests/test_layout.py tests/test_versions.py tests/test_marks.py tests/test_published.py tests/test_plugin_gaussian.py tests/test_reader_gaussian.py \
+          for t in tests/test_layout.py tests/test_versions.py tests/test_marks.py tests/test_published.py tests/test_catalogue_lists.py tests/test_plugin_gaussian.py tests/test_reader_gaussian.py \
                    tests/test_plugin_orca.py tests/test_reader_orca.py tests/test_plugin_xtb.py tests/test_reader_xtb.py \
                    tests/test_plugin_crest.py tests/test_plugin_blender.py tests/test_plugin_blender_presets.py \
                    tests/test_plugin_nci.py tests/test_plugin_pictures.py tests/test_plugin_reinvent.py \
