@@ -13,7 +13,8 @@ them by name; it reads each as data, from a signed catalogue this repository pub
 
 A plugin is released by a tag `<id>-v<version>`, its version the manifest's: its tests run, its folder is packed as
 `<id>-<version>.tar.gz` (its contents at the archive's root), and the catalogue is made again from every plugin's
-latest release and signed (`catalogue.json`, `catalogue.json.minisig`, on the release `catalogue`).
+latest release and signed (`catalogue.json`, `catalogue.json.minisig`, on the release `catalogue`). Whether the signing
+secrets are the key and password of `tools/catalogue.pub` is checked by hand, uploading nothing (`check-key.yml`).
 
 The programs the plugins run are installed separately, under their own licences, or set up by Meno where a plugin's
 manifest says how - never shipped here.
