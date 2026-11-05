@@ -1,7 +1,7 @@
 {
   "id": "rdkit",
   "name": "RDKit",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "uses": [{"name": "RDKit", "version": "2026.03.6"}],
   "description": "Makes sense of a structure as it is drawn - its hydrogens, valence, aromatic rings, and R and S, E and Z - reads and writes SMILES, and makes structures in 3D and their conformers.",
   "licence": "BSD-3-Clause",
@@ -15,6 +15,7 @@
     {
       "role": "conformers",
       "tries": true,
+      "draws": true,
       "options": [
         {"id": "field", "label": "Force field", "type": "choice", "choices": [{"value": "MMFF94", "label": "MMFF94"}, {"value": "MMFF94s", "label": "MMFF94s"}, {"value": "UFF", "label": "UFF"}], "default": "MMFF94"},
         {"id": "fallback", "label": "Where MMFF has no parameters", "type": "choice", "choices": [{"value": "UFF", "label": "UFF in its place"}, {"value": "refuse", "label": "Refuse"}], "default": "UFF"},

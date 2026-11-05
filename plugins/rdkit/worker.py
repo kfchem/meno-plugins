@@ -425,6 +425,9 @@ def op_analyse(m):
 MOST_CONFORMERS = 5000
 # conformers' random seed, and how many steps an optimisation may take, unless asked
 SEED = 0x4D45
+# how far apart two draws' seeds lie: more than the most conformers tried, so that no draw's embeddings are
+# seeded as another's are, whichever way RDKit seeds each conformer from the seed
+DRAW_STRIDE = 1_000_003
 STEPS = 2000
 # the force fields conformers may be optimised in
 FIELDS = ("MMFF94", "MMFF94s", "UFF")
@@ -450,17 +453,23 @@ def options_of(m):
     """How conformers are to be made: how many to try, as Meno sends it
     (`count`: the chemist's number, or as many as the molecule needs, which
     Meno works out - lib/chem/conformersSought), from 1 to MOST_CONFORMERS;
-    and the options the manifest declares for the role (roleOptions), each
-    as it may be. A number that is none of these is refused (`whole_in`)."""
+    the options the manifest declares for the role (roleOptions), each as it
+    may be; and the draw, where Meno asks in rounds (`draws`): its seed the
+    role's, moved on DRAW_STRIDE for each draw - another set of tries for
+    each, the same set for the same. A number that is none of these is
+    refused (`whole_in`)."""
     o = m.get("options") or {}
 
     def number(key, label, default, low, high):
         return whole_in(o[key], label, low, high) if o.get(key) is not None else default
 
     count = whole_in(m["count"], "How many conformers to try", 1, MOST_CONFORMERS) if m.get("count") is not None else None
+    # (the draw Meno asks for, a round of a search in rounds: its seed the role's, moved on by the draw - one that is no
+    #  whole number from 0 refused, never run as another)
+    draw = whole_in(m["draw"], "The draw asked for", 0, 2**31 - 1) if m.get("draw") is not None else 0
     return {
         "count": count,
-        "seed": number("seed", "Random seed", SEED, 0, 2**31 - 1),
+        "seed": (number("seed", "Random seed", SEED, 0, 2**31 - 1) + draw * DRAW_STRIDE) % 2**31,
         "field": o.get("field") if o.get("field") in FIELDS else "MMFF94",
         "iters": number("iters", "Optimisation steps, at most", STEPS, 10, 100000),
         "fallback": o.get("fallback") if o.get("fallback") in FALLBACKS else "UFF",
