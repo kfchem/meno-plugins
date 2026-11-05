@@ -139,9 +139,8 @@ if __name__ == "__main__":
 @unittest.skipUnless(Chem, "RDKit is not installed here")
 class AWorkflowsSearch(unittest.TestCase):
     """A conformer search gives RDKit's own conformers: every one embedded and optimised, as RDKit made it, in the
-    order it embedded them - none taken for another, laid over another, renumbered or ranked. Of two enantiomers,
-    one made as the other's mirror image is Meno's page's alone, which asks for that (`onPage`), as a workflow's
-    step cannot."""
+    order it embedded them - none taken for another, laid over another, renumbered or ranked; each stereoisomer
+    made itself, an enantiomer as much as any (a mirror image, where one is wanted, is Meno's to make)."""
 
     @classmethod
     def setUpClass(cls):
@@ -167,33 +166,16 @@ class AWorkflowsSearch(unittest.TestCase):
         rows = {r["label"]: r["text"] for r in made["how"]}
         self.assertEqual(rows["Kept"], "12 of 12 embedded (12 sought)")
 
-    def test_makes_each_enantiomer_itself_and_only_the_page_its_twins_mirror_image(self):
-        # (of butan-2-ol's two enantiomers, the one whose twin's SMILES comes first: on Meno's page, its twin reflected;
-        #  in a workflow's step, embedded itself)
-        r, s = (self.worker.op_from_smiles({"smiles": x})["molblock"] for x in ("C[C@@H](O)CC", "C[C@H](O)CC"))
-        second = next(b for b in (r, s) if self.worker.smiles_of(self.worker.mirror_of(self.worker.read(b))) < self.worker.smiles_of(self.worker.read(b)))
-        reflected, used = self.worker.reflected, []
-        self.worker.reflected = lambda entry: used.append(1) or reflected(entry)
-        try:
-            self.worker.op_conformers({"molblock": second, "count": 4})
-            self.assertEqual(used, [])
-            self.worker.op_conformers({"molblock": second, "count": 4, "onPage": True})
-            self.assertEqual(used, [1])
-        finally:
-            self.worker.reflected = reflected
-
-    def test_cannot_be_asked_for_the_pages_through_its_options(self):
-        # (the step's options never carry the page's flag: its card cannot set it)
-        r, s = (self.worker.op_from_smiles({"smiles": x})["molblock"] for x in ("C[C@@H](O)CC", "C[C@H](O)CC"))
-        second = next(b for b in (r, s) if self.worker.smiles_of(self.worker.mirror_of(self.worker.read(b))) < self.worker.smiles_of(self.worker.read(b)))
-        reflected, used = self.worker.reflected, []
-        self.worker.reflected = lambda entry: used.append(1) or reflected(entry)
-        try:
-            self.worker.op_conformers({"molblock": second, "count": 4, "options": {"onPage": True, "page": True}})
-        finally:
-            self.worker.reflected = reflected
-        self.assertEqual(used, [])
+    def test_makes_each_enantiomer_itself_whatever_else_it_is_sent(self):
+        # (butan-2-ol's two enantiomers: what the page once sent to have one made as the other's mirror image, in the
+        #  request or in its options, changes nothing - and never reaches the options)
+        for smiles in ("C[C@@H](O)CC", "C[C@H](O)CC"):
+            mb = self.worker.op_from_smiles({"smiles": smiles})["molblock"]
+            plain = self.worker.op_conformers({"molblock": mb, "count": 4})
+            self.assertEqual(self.worker.op_conformers({"molblock": mb, "count": 4, "onPage": True}), plain)
+            self.assertEqual(self.worker.op_conformers({"molblock": mb, "count": 4, "options": {"onPage": True, "page": True}}), plain)
         self.assertNotIn("page", self.worker.options_of({"options": {"onPage": True, "page": True}}))
+        self.assertFalse(hasattr(self.worker, "mirror_of"))
 
     def test_says_when_it_embedded_from_random_coordinates(self):
         rows = lambda e: {r["label"]: r["text"] for r in e["how"]}
@@ -547,10 +529,10 @@ class MetalFloor(unittest.TestCase):
         m.UpdatePropertyCache(strict=False)
         return m
 
-    def made(self, smiles, page=False, count=10):
+    def made(self, smiles, count=10):
         # (as many as Meno sends where nothing turns - lib/chem/conformersSought - or, given, as it sends that molecule)
         mb = Chem.MolToMolBlock(self.mol(smiles), kekulize=False)
-        return self.worker.op_conformers({"molblock": mb, "count": count, **({"onPage": True} if page else {})})["isomers"][0]
+        return self.worker.op_conformers({"molblock": mb, "count": count})["isomers"][0]
 
     def angles(self, entry, frame, symbol):
         import numpy as np
@@ -578,7 +560,7 @@ class MetalFloor(unittest.TestCase):
         # (the known answer: one conformer, Oh. Fe standing in for Os, one embedding stopped in a well 87.7
         #  kcal/mol above the octahedron, two Cl 62 degrees apart - under the floor, so dropped and counted; the
         #  other nine are the octahedron, relabelled, each given)
-        entry = self.made("Cl[Os-2](Cl)(Cl)(Cl)(Cl)Cl", page=True)
+        entry = self.made("Cl[Os-2](Cl)(Cl)(Cl)(Cl)Cl")
         self.assertEqual(len(entry["frames"]), 9)
         for k in range(9):
             angles, _, _, _ = self.angles(entry, k, "Os")

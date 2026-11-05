@@ -103,6 +103,20 @@ def v2000(atoms, bonds):
     return "\n".join(lines + ["M  END"]) + "\n"
 
 
+def smiles_from_3d(mol, frame):
+    """The SMILES a structure's 3D coordinates (its atoms', hydrogens and all, as a flat list) say, stereo and all."""
+    from rdkit.Geometry import Point3D
+
+    m = Chem.AddHs(mol)
+    conf = Chem.Conformer(m.GetNumAtoms())
+    for i in range(m.GetNumAtoms()):
+        conf.SetAtomPosition(i, Point3D(frame[3 * i], frame[3 * i + 1], frame[3 * i + 2]))
+    m.RemoveAllConformers()
+    m.AddConformer(conf, assignId=True)
+    Chem.AssignStereochemistryFrom3D(m)
+    return Chem.MolToSmiles(Chem.RemoveHs(m))
+
+
 class ChemWorkerTest(unittest.TestCase):
     def test_writes_a_canonical_smiles_with_its_stereo(self):
         r = ask("to_smiles", molblock=PCPA)
@@ -251,8 +265,8 @@ class ChemWorkerTest(unittest.TestCase):
         self.assertEqual((len(made["isomers"]), made["free"]), (2, False))
 
     def test_makes_conformers_as_its_options_say_and_says_how(self):
-        # (every one RDKit made, for Meno's page as for a workflow's step: which are the same is Meno's to say)
-        made = ask("conformers", molblock=PCPA, count=5, options={"field": "MMFF94s", "iters": 300, "seed": 7}, onPage=True)["result"]["isomers"][0]
+        # (every one RDKit made: which are the same is Meno's to say)
+        made = ask("conformers", molblock=PCPA, count=5, options={"field": "MMFF94s", "iters": 300, "seed": 7})["result"]["isomers"][0]
         self.assertEqual(made["field"], "MMFF94s")
         how = {r["label"]: r["text"] for r in made["how"]}
         self.assertEqual(how["Embedded"], "ETKDG v3")
@@ -316,28 +330,31 @@ class ChemWorkerTest(unittest.TestCase):
         drawn = ask("conformers", molblock=PCPA, count=2)["result"]["isomers"][0]
         self.assertEqual(drawn["cip"]["atoms"], {"7": ask("analyse", molblock=PCPA)["result"]["atoms"][7]["cip"]})
 
-    def test_makes_an_enantiomer_as_the_mirror_image_of_the_other(self):
-        # 3-aminobutan-2-ol's four isomers: two pairs of enantiomers - on Meno's page, which makes one of each pair the
-        # other's mirror image
+    def test_makes_each_stereoisomer_itself_an_enantiomer_as_much_as_any(self):
+        # 3-aminobutan-2-ol's four isomers - two pairs of enantiomers - each made itself, its conformers in its own
+        # configuration (a mirror image, where one is wanted, is Meno's to make)
         flat = v2000(
             [("C", 0, 0), ("C", 1.3, 0.75), ("C", 2.6, 0), ("C", 3.9, 0.75), ("O", 1.3, 2.25), ("N", 2.6, -1.5)],
             [(0, 1, 1, None), (1, 2, 1, None), (2, 3, 1, None), (1, 4, 1, None), (2, 5, 1, None)],
         )
         isomers = [i["configured"] for i in ask("stereoisomers", molblock=flat, open={"atoms": [1, 2], "bonds": []}, most=32, inThreeD=True)["result"]["isomers"]]
-        every = ask("conformers", molblock=flat, count=6, isomers=isomers, onPage=True)["result"]["isomers"]
-        flip = {"R": "S", "S": "R"}
-        by = {tuple(sorted(i["cip"]["atoms"].items())): i for i in every}
-        for labels, iso in by.items():
-            twin = by[tuple((k, flip[v]) for k, v in labels)]
-            self.assertEqual(twin["energies"], iso["energies"])
-            mirrored = [-v if k % 3 == 0 else v for k, v in enumerate(iso["frames"][0])]
-            self.assertEqual(twin["frames"][0], mirrored)
-        # and the same when each is drawn on its own: PCPA's wedge turned over
-        down = PCPA.replace("  8 12  1  1", "  8 12  1  6")
-        up = ask("conformers", molblock=PCPA, count=6, onPage=True)["result"]["isomers"][0]
-        other = ask("conformers", molblock=down, count=6, onPage=True)["result"]["isomers"][0]
-        self.assertNotEqual(up["cip"], other["cip"])
-        self.assertEqual(up["energies"], other["energies"])
+        every = ask("conformers", molblock=flat, count=6, isomers=isomers)["result"]["isomers"]
+        self.assertEqual(len({tuple(sorted(i["cip"]["atoms"].items())) for i in every}), 4)
+        for iso in every:
+            # (its first conformer read as it lies, its atoms and bonds as they came back)
+            built = Chem.RWMol()
+            for a in iso["atoms"]:
+                built.AddAtom(Chem.Atom(a["el"]))
+            for b in iso["bonds"]:
+                built.AddBond(b["a1"], b["a2"], Chem.BondType.SINGLE)
+            built = built.GetMol()
+            Chem.SanitizeMol(built)
+            conf = Chem.Conformer(built.GetNumAtoms())
+            for i in range(built.GetNumAtoms()):
+                conf.SetAtomPosition(i, tuple(iso["frames"][0][3 * i:3 * i + 3]))
+            built.AddConformer(conf)
+            Chem.AssignStereochemistryFrom3D(built)
+            self.assertEqual(Chem.MolToSmiles(Chem.RemoveHs(built)), Chem.MolToSmiles(Chem.MolFromSmiles(iso["smiles"])))
 
     def test_makes_a_centre_as_its_configuration_says_read_from_a_molecule_made_before(self):
         # butan-2-ol drawn flat, made in 3D as each isomer; its centre's configuration read from those places, as Meno
@@ -388,7 +405,7 @@ class ChemWorkerTest(unittest.TestCase):
             rdCIPLabeler.AssignCIPLabels(out)
             self.assertEqual(out.GetBondWithIdx(1).GetProp("_CIPCode"), label)
             # (and made so in 3D)
-            self.assertEqual(worker.smiles_from_3d(out, worker.conformers(out, 2)["frames"][0]), Chem.MolToSmiles(Chem.MolFromSmiles(smiles)))
+            self.assertEqual(smiles_from_3d(out, worker.conformers(out, 2)["frames"][0]), Chem.MolToSmiles(Chem.MolFromSmiles(smiles)))
 
     def test_draws_a_molecule_in_3d_as_a_formula_keeping_its_configuration(self):
         from rdkit import Chem
