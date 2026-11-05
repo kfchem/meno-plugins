@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The Blender plugin's side of the interface `preset` (docs/plugins/blender-presets.md): the `ctx` a preset module is run
+# The Blender plugin's side of the interface `preset` (docs/blender-presets.md): the `ctx` a preset module is run
 # against, built from the scene Meno sent, and the running of a look's, a studio's or a motion's module.
 #
 # Copyright (C) 2026 Meno contributors
@@ -136,7 +136,7 @@ def key(obj, path, frame, value):
 
 
 class Ctx:
-    """What a preset module is run against (docs/plugins/blender-presets.md, *ctx*)."""
+    """What a preset module is run against (docs/blender-presets.md, *ctx*)."""
 
     version = VERSION
 

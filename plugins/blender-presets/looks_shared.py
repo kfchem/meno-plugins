@@ -689,7 +689,7 @@ def settle_denoising(scene):
         c.denoising_prefilter = "ACCURATE"
 
 
-# --- the interface `preset` (docs/plugins/blender-presets.md): each look's module (look_<id>.py) names its look and hands
+# --- the interface `preset` (docs/blender-presets.md): each look's module (look_<id>.py) names its look and hands
 # these its ctx ---------------------------------------------------------------------------------------------------------
 
 # (the look's options as the manifest names them, as the builders above read them)
