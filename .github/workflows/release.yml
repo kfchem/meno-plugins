@@ -1,23 +1,28 @@
 name: Release a plugin
 
-# A tag <id>-v<version>, on main: that plugin's folder checked, packed and released (`pack`); then the catalogue made
-# again from every plugin's latest release and signed (`catalogue`). Its signing key is the repository's
-# (CATALOGUE_SIGNING_KEY, CATALOGUE_SIGNING_PASSWORD).
+# A plugin is released in two steps, as Meno is:
+# - a tag <id>-v<version> on main: that plugin's folder checked and packed, and its release made as a DRAFT (`pack`);
+# - the maintainer's Publish of that release: the catalogue made again from every PUBLISHED plugin release - a draft
+#   never counts - signed, checked, and put on the release `catalogue` (`catalogue`). The catalogue's release needs no
+#   second Publish: the plugin's is the gate.
+# Its signing key is the repository's (CATALOGUE_SIGNING_KEY, CATALOGUE_SIGNING_PASSWORD).
 #
-# Many tags may be pushed at once (the first releases): each one's `pack` runs as it comes, but the catalogue is made
-# by one run at a time (`concurrency`, never cancelling one under way). One waiting may give way to a later one; that
-# is no loss, as each makes the catalogue from every release there is - so the last made holds them all. Meno orders
-# catalogues by when each was issued (UTC, to the second): each signed here is issued strictly later than the one
-# published before it.
+# The catalogue is made by one run at a time (`concurrency`, never cancelling one under way). One waiting may give way
+# to a later one; that is no loss, as each makes it from every published release there is - so the last made holds
+# them all. Meno orders catalogues by when each was issued (UTC, to the second): each signed here is issued strictly
+# later than the one published before it.
 on:
   push:
     tags: ["*-v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: write
 
 jobs:
   pack:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -30,27 +35,30 @@ jobs:
           id="${tag%-v*}"; version="${tag##*-v}"
           test -f "plugins/$id/manifest.json"
           test "$(python3 -c "import json;print(json.load(open('plugins/$id/manifest.json'))['version'])")" = "$version"
-          # (a tag on a commit main does not hold - a branch's - releases nothing, and signs nothing)
+          # (a tag on a commit main does not hold - a branch's - releases nothing)
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           echo "id=$id" >> "$GITHUB_OUTPUT"; echo "version=$version" >> "$GITHUB_OUTPUT"
       # (the folders' layout and marks; each plugin's own tests run in CI on every pull request before it reaches main)
       - run: python3 -m unittest tests/test_layout.py tests/test_marks.py
-      - name: Its archive, released
+      - name: Its archive, in a draft release - published by the maintainer, or not at all
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 -I tools/pack.py "plugins/${{ steps.tag.outputs.id }}" dist > dist.txt
-          gh release create "$GITHUB_REF_NAME" "$(head -1 dist.txt)" --title "$GITHUB_REF_NAME" --notes "${{ steps.tag.outputs.id }} ${{ steps.tag.outputs.version }}" --latest=false
+          gh release create "$GITHUB_REF_NAME" "$(head -1 dist.txt)" --draft --title "$GITHUB_REF_NAME" --notes "${{ steps.tag.outputs.id }} ${{ steps.tag.outputs.version }}" --latest=false
 
   catalogue:
-    needs: pack
+    # (a plugin's release published - its tag <id>-v<version> - never the catalogue's own release, nor a prerelease)
+    if: github.event_name == 'release' && contains(github.event.release.tag_name, '-v') && !github.event.release.prerelease
     runs-on: ubuntu-24.04
     concurrency:
       group: catalogue
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: The catalogue, made again from every release and signed
+        with:
+          ref: main
+      - name: The catalogue, made again from every published release and signed
         env:
           GH_TOKEN: ${{ github.token }}
           KEY: ${{ secrets.CATALOGUE_SIGNING_KEY }}
@@ -58,8 +66,10 @@ jobs:
         run: |
           set -e
           mkdir -p latest
+          # (each plugin's newest PUBLISHED release: a draft never counts)
+          gh release list --limit 500 --json tagName,isDraft,isPrerelease,createdAt > releases.json
           for id in $(ls plugins); do
-            tag=$(gh release list --limit 200 --json tagName --jq "[.[].tagName | select(startswith(\"$id-v\"))] | first // empty")
+            tag=$(python3 -I tools/published.py releases.json "$id")
             [ -n "$tag" ] && gh release download "$tag" --pattern "$id-*.tar.gz" --dir latest
           done
           # (issued strictly later than the catalogue published: Meno refuses an earlier one, and takes an equal one only
