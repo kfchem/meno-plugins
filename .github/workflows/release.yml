@@ -6,8 +6,9 @@ name: Release a plugin
 #
 # Many tags may be pushed at once (the first releases): each one's `pack` runs as it comes, but the catalogue is made
 # by one run at a time (`concurrency`, never cancelling one under way). One waiting may give way to a later one; that
-# is no loss, as each makes the catalogue from every release there is - so the last made holds them all, and each
-# signed has a serial one above the one before.
+# is no loss, as each makes the catalogue from every release there is - so the last made holds them all. Meno orders
+# catalogues by when each was issued (UTC, to the second): each signed here is issued strictly later than the one
+# published before it.
 on:
   push:
     tags: ["*-v*"]
@@ -61,8 +62,16 @@ jobs:
             tag=$(gh release list --limit 200 --json tagName --jq "[.[].tagName | select(startswith(\"$id-v\"))] | first // empty")
             [ -n "$tag" ] && gh release download "$tag" --pattern "$id-*.tar.gz" --dir latest
           done
-          last=$(gh release download catalogue --pattern catalogue.json --output - 2>/dev/null | python3 -c "import json,sys;print(json.load(sys.stdin)['serial'])" || echo 0)
-          python3 -I tools/build_catalogue.py latest "https://github.com/${GITHUB_REPOSITORY}/releases/download" "$last" > catalogue.json
+          # (issued strictly later than the catalogue published: Meno refuses an earlier one, and takes an equal one only
+          #  where it is the same list - the clock waited on, a second at a time, for a minute at most)
+          last=$(gh release download catalogue --pattern catalogue.json --output - 2>/dev/null | python3 -c "import json,sys;print(json.load(sys.stdin).get('issued', ''))" || echo "")
+          issued=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          for i in $(seq 1 60); do
+            { [ -z "$last" ] || [ "$issued" \> "$last" ]; } && break
+            sleep 1; issued=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          done
+          [ -z "$last" ] || [ "$issued" \> "$last" ] || { echo "the clock is not past the catalogue published ($last)"; exit 1; }
+          python3 -I tools/build_catalogue.py latest "https://github.com/${GITHUB_REPOSITORY}/releases/download" "$issued" > catalogue.json
           sudo apt-get install -y minisign
           # (a key made on Windows, its secret pasted with CRLF line ends: the carriage returns taken out of the key and
           #  the password alike, which minisign would otherwise read as part of them)

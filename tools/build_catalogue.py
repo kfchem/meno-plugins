@@ -2,10 +2,11 @@
 licence, the plugin contract it is written to - no fact of its environment, which is known once it is downloaded, the systems it runs on, what it does (roles, kinds of step, kinds it
 reads), the kinds of file it brings that are told by their marks (`fileKinds`: so that Meno can say, of a file nothing
 added reads, which plugin would read it), the tables of atoms its program prints as papers quote them (`quotedTables`, for
-the same), and its archive (url, SHA-256, size) and its manifest's SHA-256 - and a serial
-one above the last.
-Usage: python3 -I tools/build_catalogue.py <archives folder> <base url> <last serial> > catalogue.json, the folder
-holding each plugin's latest `<id>-<version>.tar.gz` and nothing else."""
+the same), and its archive (url, SHA-256, size) and its manifest's SHA-256 - and when it was issued, which is what
+Meno orders catalogues by: UTC, to the second, as `2026-11-05T13:04:09Z` and in no other form.
+Usage: python3 -I tools/build_catalogue.py <archives folder> <base url> [<issued>] > catalogue.json, the folder
+holding each plugin's latest `<id>-<version>.tar.gz` and nothing else; `issued` the time given (the release job's, later
+than the catalogue published), or now."""
 
 import datetime
 import hashlib
@@ -16,7 +17,12 @@ import re
 import sys
 import tarfile
 
-folder, base, last = pathlib.Path(sys.argv[1]), sys.argv[2].rstrip("/"), int(sys.argv[3])
+folder, base = pathlib.Path(sys.argv[1]), sys.argv[2].rstrip("/")
+ISSUED = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+issued = sys.argv[3] if len(sys.argv) > 3 else datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+if not ISSUED.fullmatch(issued):
+    sys.exit(f"issued must be UTC to the second, as 2026-11-05T13:04:09Z: {issued}")
+datetime.datetime.strptime(issued, "%Y-%m-%dT%H:%M:%SZ")
 entries = []
 for archive in sorted(folder.glob("*.tar.gz")):
     data = archive.read_bytes()
@@ -76,5 +82,4 @@ for archive in sorted(folder.glob("*.tar.gz")):
         if m.get(extra):
             entry[extra] = m[extra]
     entries.append(entry)
-issued = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-print(json.dumps({"schema": 1, "issued": issued, "serial": last + 1, "plugins": entries}, indent=2, ensure_ascii=False))
+print(json.dumps({"schema": 1, "issued": issued, "plugins": entries}, indent=2, ensure_ascii=False))
