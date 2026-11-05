@@ -24,6 +24,105 @@ except ImportError:  # (CI's Python)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKER = ROOT / "plugins/rdkit/worker.py"
+#: What Meno holds each structure with metals these tests make to, by its connection table (`table_of`): Meno's own
+#: answer (its lib/chem/metalHolds `metalHoldsOf`), written by Meno from the blocks these tests record into the file
+#: MENO_RECORD_BLOCKS names - again whenever Meno's holds change.
+METAL_HOLDS = ROOT / "tests/metal-holds.json"
+
+
+def table_of(molblock):
+    """A MOL block's connection table - its atoms, bonds and properties, in their order - with its header, its atoms'
+    coordinates and its bonds' wedges left out: all Meno's holds are worked out from (lib/chem/metalHolds
+    `holdsGraphOf`), and the same on every platform, where the coordinates RDKit lays a structure out at - and so the
+    wedges it chooses - differ from one build to another."""
+    lines = molblock.splitlines()[3:]
+    if not lines:
+        return ""
+    if "V3000" not in lines[0]:
+        n, m = int(lines[0][0:3]), int(lines[0][3:6])
+        atoms = [line[30:] for line in lines[1 : 1 + n]]
+        bonds = [line[:9] + line[12:] for line in lines[1 + n : 1 + n + m]]
+        return "\n".join([lines[0], *atoms, *bonds, *lines[1 + n + m :]])
+    out, block = [], ""
+    for line in lines:
+        if line.startswith("M  V30 BEGIN ") or line.startswith("M  V30 END "):
+            block = line.split()[3] if line.startswith("M  V30 BEGIN ") else ""
+        elif block == "ATOM" and line.startswith("M  V30 "):
+            t = line.split()
+            line = " ".join(t[:4] + t[7:])
+        elif block == "BOND" and line.startswith("M  V30 "):
+            line = " ".join(t for t in line.split() if not t.startswith("CFG="))
+        out.append(line)
+    return "\n".join(out)
+
+
+def held(molblock):
+    """A request's structure, its MOL block, with what Meno holds it to where it has metals (METAL_HOLDS) - found by its
+    connection table (`table_of`). A structure with a metal bonded to anything that the file has no holds for fails the
+    test that sends it, saying so: sent unheld, it would be embedded as the plugin alone would, and pass or fail for no
+    reason of its own."""
+    import json
+    import os
+
+    record = os.environ.get("MENO_RECORD_BLOCKS")
+    if record:
+        with open(record, "a", encoding="utf-8") as f:
+            f.write(json.dumps(molblock) + "\n")
+    if not hasattr(held, "known"):
+        held.known = {table_of(c["molblock"]): c["holds"] for c in json.loads(METAL_HOLDS.read_text())} if METAL_HOLDS.exists() else {}
+    holds = held.known.get(table_of(molblock))
+    if holds is None and not record and metal_bonded(molblock):
+        raise AssertionError(f"{METAL_HOLDS.name} has no holds for this structure with a metal: write it again from Meno")
+    return {"molblock": molblock, **({"holds": holds} if holds else {})}
+
+
+def metal_bonded(molblock):
+    """Whether a MOL block has a d- or f-block metal bonded to anything: one Meno sends holds for."""
+    mol = Chem.MolFromMolBlock(molblock, sanitize=False, removeHs=False)
+    is_metal = lambda z: 21 <= z <= 30 or 39 <= z <= 48 or 57 <= z <= 80 or 89 <= z <= 112
+    return mol is not None and any(is_metal(a.GetAtomicNum()) and a.GetDegree() > 0 for a in mol.GetAtoms())
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
+class HeldAsMenoSays(unittest.TestCase):
+    """The holds these tests send are found by a structure's connection table alone (`table_of`), so that the same
+    structure laid out at other coordinates - by another build of RDKit, on another platform - finds them; and a
+    structure with a metal the file has none for fails, never sent unheld."""
+
+    def test_finds_the_holds_of_a_structure_laid_out_elsewhere(self):
+        import json
+        cases = json.loads(METAL_HOLDS.read_text())
+        self.assertEqual(len({table_of(c["molblock"]) for c in cases}), len(cases))
+        for c in cases:
+            # (its atoms' coordinates, and nothing else, moved in their last digits - as another build lays it out)
+            lines = c["molblock"].splitlines()
+            if "V3000" in lines[3]:
+                inside = False
+                for k, line in enumerate(lines):
+                    if line.startswith("M  V30 BEGIN ATOM") or line.startswith("M  V30 END ATOM"):
+                        inside = line.startswith("M  V30 BEGIN")
+                    elif inside:
+                        t = line.split(" ")
+                        lines[k] = line.replace(f" {t[5]} {t[6]} ", f" {float(t[5]) + 0.0001:.4f} {float(t[6]) - 0.0001:.4f} ", 1)
+            else:
+                n, m = int(lines[3][0:3]), int(lines[3][3:6])
+                for k in range(4, 4 + n):
+                    x, y = float(lines[k][0:10]), float(lines[k][10:20])
+                    lines[k] = f"{x + 0.0001:10.4f}{y - 0.0001:10.4f}" + lines[k][20:]
+                # (and a wedge chosen on another bond, as one laid out elsewhere may be)
+                for k in range(4 + n, 4 + n + m):
+                    lines[k] = lines[k][:9] + ("  1" if lines[k][9:12] == "  0" else "  0") + lines[k][12:]
+            moved = "\n".join(lines) + "\n"
+            self.assertNotEqual(moved, c["molblock"])
+            self.assertEqual(held(moved).get("holds"), c["holds"])
+
+    def test_fails_a_structure_with_a_metal_it_has_no_holds_for(self):
+        mol = Chem.MolFromSmiles("[Cu]C#N", sanitize=False)
+        with self.assertRaisesRegex(AssertionError, "has no holds for this structure with a metal"):
+            held(Chem.MolToMolBlock(mol))
+        # (one with no metal, or a metal bonded to nothing: none to hold, none needed)
+        self.assertNotIn("holds", held(Chem.MolToMolBlock(Chem.MolFromSmiles("CCO"))))
+        self.assertNotIn("holds", held(Chem.MolToMolBlock(Chem.MolFromSmiles("[Cu+2]", sanitize=False))))
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
@@ -181,7 +280,7 @@ class AWorkflowsSearch(unittest.TestCase):
         rows = lambda e: {r["label"]: r["text"] for r in e["how"]}
         self.assertEqual(rows(self.worker.conformers(Chem.MolFromSmiles("CCCC"), count=4))["Embedded"], "ETKDG v3")
         # (an eta complex is embedded from random coordinates, its star at no fixed place)
-        fe = self.worker.op_conformers({"molblock": EtaBound.ferrocene(), "count": 4})["isomers"][0]
+        fe = self.worker.op_conformers({**held(EtaBound.ferrocene()), "count": 4})["isomers"][0]
         self.assertEqual(rows(fe)["Embedded"], "ETKDG v3, from random coordinates")
 
 
@@ -197,7 +296,7 @@ class Metals(unittest.TestCase):
         spec.loader.exec_module(cls.worker)
 
     def made(self, smiles, count=10):
-        return self.worker.conformers(Chem.MolFromSmiles(smiles), count=count)
+        return self.worker.op_conformers({**held(self.worker.op_from_smiles({"smiles": smiles})["molblock"]), "count": count})["isomers"][0]
 
     def lengths_and_angles(self, entry, frame, symbol):
         import math
@@ -262,16 +361,6 @@ class Metals(unittest.TestCase):
         rows = {r["label"]: r["text"] for r in entry["how"]}
         self.assertTrue(rows["Optimised"].startswith("not: no force field here has parameters for Os"), rows)
 
-    @unittest.skipUnless(os.environ.get("MENO_CHECKOUT"), "no checkout of Meno named (MENO_CHECKOUT)")
-    def test_holds_the_same_radii_as_the_app(self):
-        import re
-        text = (pathlib.Path(os.environ["MENO_CHECKOUT"]) / "src/lib/chem/elements.ts").read_text(encoding="utf-8")
-        app = {
-            sym: tuple(None if v.strip() == "null" else int(v) for v in r.split(","))
-            for sym, r in re.findall(r'symbol: "(\w+)",[^\n]*?radii: \[([^\]]*)\]', text)
-        }
-        self.assertEqual(self.worker.RADII, app)
-
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
 class RingChairs(unittest.TestCase):
@@ -291,7 +380,7 @@ class RingChairs(unittest.TestCase):
         import numpy as np
         mb = self.worker.op_from_smiles({"smiles": smiles})["molblock"]
         # (as many as Meno sends a ring that can flip: lib/chem/conformersSought)
-        entry = self.worker.op_conformers({"molblock": mb, "count": 200})["isomers"][0]
+        entry = self.worker.op_conformers({**held(mb), "count": 200})["isomers"][0]
         els = [a["el"] for a in entry["atoms"]]
         nbr, single = {}, {}
         for b in entry["bonds"]:
@@ -411,7 +500,7 @@ class HowManyTried(unittest.TestCase):
 
     def test_makes_none_where_it_is_sent_no_number(self):
         with self.assertRaisesRegex(ValueError, "How many conformers to try was not given"):
-            self.worker.op_conformers({"molblock": self.worker.op_from_smiles({"smiles": "CCO"})["molblock"]})
+            self.worker.op_conformers({**held(self.worker.op_from_smiles({"smiles": "CCO"})["molblock"])})
 
     def test_says_its_search_takes_a_number_of_tries_and_asks_none_itself(self):
         import json
@@ -530,9 +619,10 @@ class MetalFloor(unittest.TestCase):
         return m
 
     def made(self, smiles, count=10):
-        # (as many as Meno sends where nothing turns - lib/chem/conformersSought - or, given, as it sends that molecule)
+        # (as many as Meno sends where nothing turns - lib/chem/conformersSought - or, given, as it sends that molecule;
+        #  and what it holds it to, `held`)
         mb = Chem.MolToMolBlock(self.mol(smiles), kekulize=False)
-        return self.worker.op_conformers({"molblock": mb, "count": count})["isomers"][0]
+        return self.worker.op_conformers({**held(mb), "count": count})["isomers"][0]
 
     def angles(self, entry, frame, symbol):
         import numpy as np
@@ -546,34 +636,28 @@ class MetalFloor(unittest.TestCase):
                 out.append(math.degrees(math.acos(max(-1.0, min(1.0, float(u @ v / np.linalg.norm(u) / np.linalg.norm(v)))))))
         return sorted(out), {entry["atoms"][i]["el"]: i for i in near}, P, m
 
-    def test_the_floor_sits_below_the_narrowest_ideal_polyhedron_of_six(self):
-        # (a trigonal prism with equal edges, its corners on a sphere: neighbours 2 asin(sqrt(3/7)) apart)
-        import numpy as np
-        corners = [(math.cos(2 * math.pi * k / 3), math.sin(2 * math.pi * k / 3), z) for z in (-1, 1) for k in range(3)]
-        P = np.array(corners) * np.array([1.0, 1.0, math.sqrt(3) / 2])  # (edges all sqrt(3))
-        a = math.degrees(math.acos(float(P[0] @ P[1] / np.linalg.norm(P[0]) ** 2)))
-        self.assertAlmostEqual(a, math.degrees(2 * math.asin(math.sqrt(3 / 7))), places=6)
-        self.assertAlmostEqual(a, 81.79, places=2)
-        self.assertLess(self.worker.NARROWEST_AT_METAL, a)
-
     def test_gives_hexachloroosmate_as_the_octahedron_again_and_again(self):
         # (the known answer: one conformer, Oh. Fe standing in for Os, one embedding stopped in a well 87.7
-        #  kcal/mol above the octahedron, two Cl 62 degrees apart - under the floor, so dropped and counted; the
-        #  other nine are the octahedron, relabelled, each given)
+        #  kcal/mol above the octahedron, two Cl 62 degrees apart - under the floor, which Meno sets aside and counts
+        #  (lib/chem/metalHolds `keptMade`): every one given here; the other nine are the octahedron, relabelled)
         entry = self.made("Cl[Os-2](Cl)(Cl)(Cl)(Cl)Cl")
-        self.assertEqual(len(entry["frames"]), 9)
-        for k in range(9):
-            angles, _, _, _ = self.angles(entry, k, "Os")
-            self.assertTrue(all(abs(a - 90) < 1 for a in angles[:12]), angles)
-            self.assertTrue(all(a > 179 for a in angles[12:]), angles)
+        self.assertEqual(len(entry["frames"]), 10)
+        shapes = [self.angles(entry, k, "Os")[0] for k in range(10)]
+        under = [k for k, angles in enumerate(shapes) if angles[0] < 75 - 5]
+        self.assertEqual(len(under), 1)
+        self.assertEqual(round(shapes[under[0]][0]), 62)
+        for k, angles in enumerate(shapes):
+            if k not in under:
+                self.assertTrue(all(abs(a - 90) < 1 for a in angles[:12]), angles)
+                self.assertTrue(all(a > 179 for a in angles[12:]), angles)
         rows = {r["label"]: r["text"] for r in entry["how"]}
-        self.assertEqual(rows["Dropped"], "1: two ligands at Os closer than the 75\u00b0 floor held (narrowest 62\u00b0)")
-        self.assertEqual(rows["Kept"], "9 of 10 embedded (10 sought)")
+        self.assertNotIn("Dropped", rows)
+        self.assertEqual(rows["Kept"], "10 of 10 embedded (10 sought)")
         # (the model said once, in the line that says how they were made; its energies given as the model's, none
         #  as the molecule's)
         self.assertTrue(entry["method"].endswith("; modelled: Fe for Os"), entry["method"])
         self.assertNotIn("energies", entry)
-        self.assertEqual(len(entry["modelEnergies"]), 9)
+        self.assertEqual(len(entry["modelEnergies"]), 10)
 
     def test_gives_the_trans_isomer_of_an_osmium_bisphosphine_the_lowest_energy_of_its_model(self):
         # (trans-OsCl4(PEt3)2, the one known: the lowest by the stand-in's energies, wherever it was embedded)
@@ -585,43 +669,25 @@ class MetalFloor(unittest.TestCase):
         u, v = P[ps[0]] - P[m], P[ps[1]] - P[m]
         self.assertGreater(math.degrees(math.acos(float(u @ v / np.linalg.norm(u) / np.linalg.norm(v)))), 170)
 
-    def test_holds_nothing_within_one_ligand_nor_for_a_hydride(self):
-        # (three en on one metal: of its fifteen pairs, the three within an en are not held, the twelve across are)
-        pairs = self.worker.floor_pairs(Chem.AddHs(self.mol("N1CCN[Co+3]123(NCCN2)NCCN3")))
-        self.assertEqual(len(pairs), 12)
-        self.assertEqual({angle for *_, angle in pairs}, {75.0})
-        # (a cis dihydride: its hydrides are not held at all, its other ligands are)
-        hydride = Chem.AddHs(self.mol("[H][Os]([H])(Cl)(Cl)(P(C)(C)C)P(C)(C)C"))
-        held = self.worker.floor_pairs(hydride)
-        self.assertEqual(len(held), 6)
-        self.assertFalse([p for p in held if 1 in (hydride.GetAtomWithIdx(p[1]).GetAtomicNum(), hydride.GetAtomWithIdx(p[2]).GetAtomicNum())])
-
     def test_holds_seven_and_eight_bonded_atoms_at_the_crowded_floor(self):
         # (without a floor, ETKDG knowing no angle at a metal, [ZrF7]3-'s fluorides came out 33 degrees apart and
         #  OsCl4Br4's halides 25)
         for smiles, symbol, n in (("F[Zr-3](F)(F)(F)(F)(F)F", "Zr", 7), ("Cl[Os](Cl)(Cl)(Cl)(Br)(Br)(Br)Br", "Os", 8)):
-            pairs = self.worker.floor_pairs(Chem.AddHs(self.mol(smiles)))
-            self.assertEqual(len(pairs), n * (n - 1) // 2)
-            self.assertEqual({angle for *_, angle in pairs}, {60.0})
             entry = self.made(smiles)
             for f in range(len(entry["frames"])):
                 angles, _, _, _ = self.angles(entry, f, symbol)
-                self.assertGreater(angles[0], 60 - self.worker.FLOOR_SLACK, (smiles, angles[:3]))
+                self.assertGreater(angles[0], 60 - 5, (smiles, angles[:3]))
             rows = {r["label"]: r["text"] for r in entry["how"]}
             self.assertIn("ligands at least 60\u00b0 apart", rows[symbol])
             # (pressed against the floor they come out up to two degrees under it: none is dropped for that)
             self.assertNotIn("Dropped", rows)
-        # (and none past twelve)
-        self.assertIsNone(self.worker.floor_for(13))
 
     def test_holds_nothing_at_a_bent_metallocene_whose_chlorides_stay_apart(self):
         # (Cp2ZrCl2: no floor at a metal with eta rings - their own holds keep the Cl off them - and its Cl-Zr-Cl
         #  still comes out as a bent metallocene's, about 97 degrees in crystal structures)
         import numpy as np
         block = EtaBound.zirconocene_dichloride()
-        drawn = self.worker.read(block)
-        self.assertEqual(self.worker.floor_pairs(drawn), [])
-        entry = self.worker.op_conformers({"molblock": block, "count": 10})["isomers"][0]
+        entry = self.worker.op_conformers({**held(block), "count": 10})["isomers"][0]
         for f in range(len(entry["frames"])):
             P = np.array(entry["frames"][f]).reshape(-1, 3)
             u, v = P[3] - P[0], P[4] - P[0]
@@ -635,15 +701,15 @@ class MetalFloor(unittest.TestCase):
         energies = []
         optimised = self.worker.uff_with_metals
 
-        def optimise(mol, ids, iters, **kw):
-            out = optimised(mol, ids, iters, **kw)
+        def optimise(mol, ids, holds, iters, **kw):
+            out = optimised(mol, ids, holds, iters, **kw)
             energies.append([e for _, e in out])
             return out
 
         self.worker.uff_with_metals = optimise
         try:
-            zr = self.worker.op_conformers({"molblock": EtaBound.zirconocene_dichloride(), "count": 10})["isomers"][0]
-            fe = self.worker.op_conformers({"molblock": EtaBound.ferrocene(), "count": 10})["isomers"][0]
+            zr = self.worker.op_conformers({**held(EtaBound.zirconocene_dichloride()), "count": 10})["isomers"][0]
+            fe = self.worker.op_conformers({**held(EtaBound.ferrocene()), "count": 10})["isomers"][0]
         finally:
             self.worker.uff_with_metals = optimised
         self.assertTrue(zr["method"].endswith("; modelled: Ti for Zr, the \u03b7 rings held"), zr["method"])
@@ -655,7 +721,6 @@ class MetalFloor(unittest.TestCase):
 
     def test_holds_nothing_at_a_metal_with_an_eta2_ligand(self):
         # (Zeise's anion: the alkene's carbon and the cis Cl come near 71 degrees in real structures)
-        self.assertEqual(self.worker.floor_pairs(Chem.AddHs(self.mol("Cl[Pt-](Cl)(Cl)1CC1"))), [])
         entry = self.made("Cl[Pt-](Cl)(Cl)1CC1")
         rows = {r["label"]: r["text"] for r in entry["how"]}
         self.assertIn("no angle held between ligands: a ligand bound through atoms side by side", rows["Pt"])
@@ -714,7 +779,7 @@ class EtaBound(unittest.TestCase):
 
     def made(self, block):
         # (as many as Meno sends a metallocene: nothing in it turns, and its rings are held)
-        return self.worker.op_conformers({"molblock": block, "count": 10})["isomers"][0]
+        return self.worker.op_conformers({**held(block), "count": 10})["isomers"][0]
 
     def test_says_how_it_was_made_and_what_was_held(self):
         # (one line, with every structure: embedding, the force field, and what was held that is no term of it)
@@ -723,7 +788,7 @@ class EtaBound(unittest.TestCase):
         self.assertIn("\u03b7 rings: metal\u2013ring atom distances", entry["method"])
         self.assertIn("rings \u2265 2.9 \u00c5 apart", entry["method"])
         # (a molecule of no metal: nothing held)
-        plain = self.worker.op_conformers({"molblock": self.worker.op_from_smiles({"smiles": "CCO"})["molblock"], "count": 10})["isomers"][0]
+        plain = self.worker.op_conformers({**held(self.worker.op_from_smiles({"smiles": "CCO"})["molblock"]), "count": 10})["isomers"][0]
         self.assertEqual(plain["method"], "ETKDG v3 + MMFF94")
 
     def test_keeps_a_bent_metallocenes_rings_apart(self):
@@ -823,10 +888,10 @@ class HalideBridged(unittest.TestCase):
     def test_keeps_the_dimer_drawn_by_hand_together(self):
         # (each allyl bound by three bonds to its Pd, five in all: UFF has no shape for that, and a conformer may come
         # out uneven - but held together, where every one had Pd-Cl 1.89 and 2.76 A)
-        self.check(self.worker.op_conformers({"molblock": self.drawn(), "count": 4})["isomers"][0], slack=0.4)
+        self.check(self.worker.op_conformers({**held(self.drawn()), "count": 4})["isomers"][0], slack=0.4)
 
     def test_makes_and_keeps_the_dimer_from_its_label_together(self):
-        entry = self.worker.op_conformers({"molblock": self.from_label(), "count": 4})["isomers"][0]
+        entry = self.worker.op_conformers({**held(self.from_label()), "count": 4})["isomers"][0]
         self.check(entry)
         import numpy as np
         P = np.array(entry["frames"][0]).reshape(-1, 3)
@@ -1038,7 +1103,7 @@ class StereoRequests(unittest.TestCase):
         for hydrogens in (False, True):
             got = self.isomers(self.block("C1C2CC1C2C", hydrogens))
             self.assertEqual((got["isomers"], got["free"]), ([], True), hydrogens)
-        made = self.worker.op_conformers({"molblock": self.block("C1C2CC1C2C"), "count": 1})["isomers"]
+        made = self.worker.op_conformers({**held(self.block("C1C2CC1C2C")), "count": 1})["isomers"]
         self.assertEqual(len(made), 1)
         self.assertTrue(made[0]["frames"])
         # (prismane: free too)
@@ -1069,7 +1134,7 @@ class StereoRequests(unittest.TestCase):
         # (not named: given each way)
         self.assertEqual(len(self.worker.op_stereoisomers({"molblock": block, "open": {"atoms": [6], "bonds": [1]}, "most": 32, "inThreeD": True})["isomers"]), 4)
         # (and made in 3D with it as the embedding places it)
-        made = self.worker.op_conformers({"molblock": block, "isomers": [i["configured"] for i in got["isomers"]], "count": 1})["isomers"]
+        made = self.worker.op_conformers({**held(block), "isomers": [i["configured"] for i in got["isomers"]], "count": 1})["isomers"]
         self.assertEqual(len(made), 2)
 
     def test_refuses_whole_past_the_most_without_making_them_all(self):
@@ -1112,11 +1177,11 @@ class StereoRequests(unittest.TestCase):
     def test_makes_the_conformers_of_each_configuration_given(self):
         block = self.block("CC(O)C(N)C")
         got = self.isomers(block)
-        made = self.worker.op_conformers({"molblock": block, "isomers": [i["configured"] for i in got["isomers"]], "count": 2})["isomers"]
+        made = self.worker.op_conformers({**held(block), "isomers": [i["configured"] for i in got["isomers"]], "count": 2})["isomers"]
         self.assertEqual([m["smiles"] for m in made], [i["smiles"] for i in got["isomers"]])
         self.assertEqual(len({tuple(sorted(m["cip"]["atoms"].items())) for m in made}), 4)
         # (none given: the structure as drawn)
-        self.assertEqual(len(self.worker.op_conformers({"molblock": block, "count": 2})["isomers"]), 1)
+        self.assertEqual(len(self.worker.op_conformers({**held(block), "count": 2})["isomers"]), 1)
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
@@ -1270,11 +1335,11 @@ class CoordinationBonds(unittest.TestCase):
         return "\n".join(lines)
 
     def formula(self, molblock):
-        iso = self.worker.op_conformers({"molblock": molblock, "count": 2})["isomers"][0]
+        iso = self.worker.op_conformers({**held(molblock), "count": 2})["isomers"][0]
         return "".join(sorted(a["el"] for a in iso["atoms"]))
 
     def made(self, molblock):
-        return self.worker.op_conformers({"molblock": molblock, "count": 2})["isomers"][0]
+        return self.worker.op_conformers({**held(molblock), "count": 2})["isomers"][0]
 
     def test_a_group_13_adduct_drawn_with_an_arrow_is_held_in_its_dipolar_form_its_charges_reported_as_drawn(self):
         # (H3N->BH3 as plain atoms: before 0.1.12 RDKit gave the B two hydrogens - H3N->BH2 - and 0.1.12 refused it)
@@ -1450,7 +1515,7 @@ class WhereMmffHasNoParameters(unittest.TestCase):
 
     def test_refuses_an_eta_complex_where_told_to_its_star_no_atom_mmff_types(self):
         with self.assertRaisesRegex(ValueError, "MMFF94 has no parameters for it"):
-            self.worker.op_conformers({"molblock": EtaBound.ferrocene(), "count": 2, "options": {"fallback": "refuse"}})
+            self.worker.op_conformers({**held(EtaBound.ferrocene()), "count": 2, "options": {"fallback": "refuse"}})
 
     def test_is_a_choice_of_the_search_and_of_minimise_uff_unless_chosen_otherwise(self):
         import json
