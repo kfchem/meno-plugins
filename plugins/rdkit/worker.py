@@ -428,6 +428,10 @@ SEED = 0x4D45
 STEPS = 2000
 # the force fields conformers may be optimised in
 FIELDS = ("MMFF94", "MMFF94s", "UFF")
+#: What is done where MMFF94 or MMFF94s is asked and has no parameters for the molecule (a boron, a metal): UFF in
+#: its place, said in how they were made - or the molecule refused, saying why. The chemist's choice (`fallback`),
+#: UFF unless chosen otherwise.
+FALLBACKS = ("UFF", "refuse")
 
 
 def whole_in(value, label, low, high):
@@ -459,7 +463,15 @@ def options_of(m):
         "seed": number("seed", "Random seed", SEED, 0, 2**31 - 1),
         "field": o.get("field") if o.get("field") in FIELDS else "MMFF94",
         "iters": number("iters", "Optimisation steps, at most", STEPS, 10, 100000),
+        "fallback": o.get("fallback") if o.get("fallback") in FALLBACKS else "UFF",
     }
+
+
+def refused_without_mmff(mol, field, fallback):
+    """Raised where MMFF94 or MMFF94s is asked, has no parameters for `mol` - a metal, or an eta system's star,
+    which MMFF types as nothing - and UFF in its place was not chosen (`fallback`, FALLBACKS)."""
+    if fallback == "refuse" and field in ("MMFF94", "MMFF94s") and not rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
+        raise ValueError(f"{field} has no parameters for it, and UFF in its place was not chosen: choose UFF, or let UFF stand in")
 #: Kilocalories per mole in a hartree: energies go back in hartrees. The hartree (4.3597447222071e-18 J,
 #: CODATA 2018) times the Avogadro constant (6.02214076e23 per mole, exact, SI 2019), over the
 #: thermochemical calorie (4.184 J, exact).
@@ -1403,9 +1415,10 @@ def conformers_of(iso, how, made):
     return made[smiles]
 
 
-def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=()):
+def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(), fallback="UFF"):
     """A stereoisomer's conformers, embedded (ETKDG) and optimised (MMFF94,
-    MMFF94s or UFF, as asked - UFF where MMFF has no parameters) - every one
+    MMFF94s or UFF, as asked - UFF where MMFF has no parameters, or the
+    molecule refused before anything is embedded, as `fallback` says) - every one
     RDKit made, as it made it, in the order it embedded them, with their
     energies; and how they were made, said as rows to show (`how`). How many
     are tried is `count`, as Meno sends it. A metal's bonds are embedded at
@@ -1421,6 +1434,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=())
         raise ValueError("How many conformers to try was not given.")
     eta = eta_systems(mol)
     mol = Chem.AddHs(mol)
+    refused_without_mmff(mol, field, fallback)
     params = rdDistGeom.ETKDGv3()
     params.randomSeed = seed
     # (nothing pruned while embedding: ETKDG's raw coordinates are not yet chairs, and two embeddings that would
@@ -1466,7 +1480,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=())
     untyped = sorted({el for el, digit in metals if digit is None})
     if rows:
         # (its restraints held while each conformer is optimised, as Minimise with restraints holds them)
-        field, make = restrained_field(mol, rows, field)
+        field, make = restrained_field(mol, rows, field, fallback)
         stood_in, results = False, []
         for cid in ids:
             ff = make(cid, rows)
@@ -1779,13 +1793,14 @@ def restraint_rows(rows, n):
     return held
 
 
-def minimised(mol, rows, field="MMFF94", iters=STEPS, start=None):
+def minimised(mol, rows, field="MMFF94", iters=STEPS, start=None, fallback="UFF"):
     """`mol` minimised in a force field with its restraints held (Minimise
     with restraints): a distance by RDKit's distance constraint, k d^2 / 2 as
     the record has it (kcal mol-1 A-2, the same k); a dihedral by RDKit's
     torsion constraint, its k the record's times TORSION_K; atoms fixed as
     fixed points. MMFF94 or MMFF94s as asked, UFF where MMFF has no
-    parameters; none where UFF has none either - said. From `start`, the
+    parameters (or refused, as `fallback` says); none where UFF has none
+    either - said. From `start`, the
     places the restraints were first held at, where given; else from where
     its atoms are. Nothing between its parts is left out. Its energy is the
     force field's, without the restraints' own. Whether it converged within
@@ -1797,7 +1812,7 @@ def minimised(mol, rows, field="MMFF94", iters=STEPS, start=None):
             raise ValueError("Where its restraints were first held is not the molecule's atoms")
         for i in range(mol.GetNumAtoms()):
             conf.SetAtomPosition(i, Point3D(float(start[3 * i]), float(start[3 * i + 1]), float(start[3 * i + 2])))
-    field, make = restrained_field(mol, rows, field)
+    field, make = restrained_field(mol, rows, field, fallback)
     ff = make(-1, rows)
     converged = ff.Minimize(maxIts=iters) == 0
     places = list(ff.Positions())
@@ -1860,15 +1875,17 @@ def missed_words(missed):
     return "missed by at most " + " and ".join(said) if said else ""
 
 
-def restrained_field(mol, rows, field="MMFF94"):
+def restrained_field(mol, rows, field="MMFF94", fallback="UFF"):
     """The force field a molecule is minimised in with restraints held - MMFF94
-    or MMFF94s as asked, UFF where MMFF has no parameters, neither said where
-    UFF has none - and how to make it for a conformer with restraints held
+    or MMFF94s as asked, UFF where MMFF has no parameters (or refused, as
+    `fallback` says: FALLBACKS), neither said where UFF has none - and how to
+    make it for a conformer with restraints held
     (`make(cid, rows)`, initialised), each as the entry record states it: a
     distance by RDKit's distance constraint (k d^2 / 2, the same k), a
     dihedral by its torsion constraint (the record's k times TORSION_K),
     atoms fixed as fixed points. Nothing between the molecule's parts is
     left out."""
+    refused_without_mmff(mol, field, fallback)
     if field in ("MMFF94", "MMFF94s") and rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
         props = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant=field)
         base = lambda cid: rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, props, confId=cid, ignoreInterfragInteractions=False)

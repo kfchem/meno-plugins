@@ -1414,6 +1414,77 @@ class CoordinationBonds(unittest.TestCase):
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
+class WhereMmffHasNoParameters(unittest.TestCase):
+    """Where MMFF94 or MMFF94s is asked and has none for the molecule, UFF stands in, said in how it was made - or,
+    where the chemist chose it (`fallback`: refuse), the molecule is refused, saying why, before anything is made.
+    Trimethylborane: MMFF94 has no type for its boron, UFF has one (both as RDKit's own checks say)."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def borane(self):
+        from rdkit.Chem import AllChem, rdForceFieldHelpers
+        mol = Chem.AddHs(Chem.MolFromSmiles("CB(C)C"))
+        self.assertFalse(rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol))
+        self.assertTrue(rdForceFieldHelpers.UFFHasAllMoleculeParams(mol))
+        AllChem.EmbedMolecule(mol, randomSeed=11)
+        return mol
+
+    def test_takes_uff_in_its_place_unless_told_to_refuse(self):
+        made = self.worker.conformers(Chem.MolFromSmiles("CB(C)C"), count=3)
+        self.assertEqual(made["field"], "UFF")
+        self.assertIn({"label": "Optimised", "text": "UFF, at most 2000 steps"}, made["how"])
+        self.assertEqual(self.worker.minimised(self.borane(), [])["field"], "UFF")
+
+    def test_refuses_where_told_to_saying_why(self):
+        with self.assertRaisesRegex(ValueError, "MMFF94 has no parameters for it, and UFF in its place was not chosen"):
+            self.worker.conformers(Chem.MolFromSmiles("CB(C)C"), count=3, fallback="refuse")
+        with self.assertRaisesRegex(ValueError, "MMFF94s has no parameters for it"):
+            self.worker.minimised(self.borane(), [], field="MMFF94s", fallback="refuse")
+        # (a molecule MMFF has parameters for, and UFF asked for itself: as before, whatever the choice)
+        self.assertEqual(self.worker.conformers(Chem.MolFromSmiles("CCO"), count=2, fallback="refuse")["field"], "MMFF94")
+        self.assertEqual(self.worker.conformers(Chem.MolFromSmiles("CB(C)C"), count=2, field="UFF", fallback="refuse")["field"], "UFF")
+
+    def test_refuses_an_eta_complex_where_told_to_its_star_no_atom_mmff_types(self):
+        with self.assertRaisesRegex(ValueError, "MMFF94 has no parameters for it"):
+            self.worker.op_conformers({"molblock": EtaBound.ferrocene(), "count": 2, "options": {"fallback": "refuse"}})
+
+    def test_is_a_choice_of_the_search_and_of_minimise_uff_unless_chosen_otherwise(self):
+        import json
+        manifest = json.loads((WORKER.parent / "manifest.json").read_text(encoding="utf-8"))
+        given = [o for r in manifest["roles"] + manifest["steps"] for o in r.get("options") or [] if o["id"] == "fallback"]
+        self.assertEqual(len(given), 2)
+        for o in given:
+            self.assertEqual((o["type"], [c["value"] for c in o["choices"]], o["default"]), ("choice", list(self.worker.FALLBACKS), "UFF"))
+        [minimise] = [s for s in manifest["steps"] if s["kinds"] == ["minimise"]]
+        self.assertIn("fallback", [o["id"] for o in minimise["options"]])
+
+    def test_a_minimise_job_refuses_where_told_to(self):
+        import json, subprocess, sys, tempfile
+        mol = self.borane()
+        entry = {
+            "atoms": [{"el": a.GetSymbol(), "x": p[0], "y": p[1], "z": p[2]} for a, p in zip(mol.GetAtoms(), mol.GetConformer().GetPositions())],
+            "bonds": [{"a1": b.GetBeginAtomIdx(), "a2": b.GetEndAtomIdx(), "order": 1} for b in mol.GetBonds()],
+        }
+        for fallback, ok in (("UFF", True), ("refuse", False)):
+            [job] = self.worker.op_prepare({"step": "minimise", "entries": [entry], "options": {"field": "MMFF94", "steps": 50, "fallback": fallback}})["jobs"]
+            with tempfile.TemporaryDirectory() as here:
+                with open(f"{here}/{job['files'][0]['name']}", "w", encoding="utf-8") as f:
+                    f.write(job["files"][0]["text"])
+                ran = subprocess.run([sys.executable, *job["args"]], cwd=here, capture_output=True, text=True)
+            self.assertEqual(ran.returncode == 0, ok, ran.stderr)
+            self.assertIn("UFF:" if ok else "MMFF94 has no parameters for it", ran.stdout if ok else ran.stderr)
+
+    def test_reads_the_choice_from_the_options_uff_unless_refuse(self):
+        self.assertEqual(self.worker.options_of({"options": {"fallback": "refuse"}})["fallback"], "refuse")
+        self.assertEqual(self.worker.options_of({"options": {"fallback": "something"}})["fallback"], "UFF")
+        self.assertEqual(self.worker.options_of({})["fallback"], "UFF")
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
 class MinimiseWithRestraints(unittest.TestCase):
     """A molecule minimised with its restraints held, each by the energy the entry record states (src/lib/entry.ts):
     a distance by k d^2 / 2 (kcal mol-1 A-2), a dihedral by k phi^2 / 2 (phi in radians, kcal mol-1 rad-2), atoms
