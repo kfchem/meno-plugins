@@ -17,6 +17,7 @@ import json
 import pathlib
 import sys
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKER = ROOT / "plugins/gaussian/worker.py"
@@ -160,6 +161,12 @@ DIED = """ Harmonic frequencies (cm**-1), IR intensities (KM/Mole)
 
 
 class Steps(unittest.TestCase):
+    def setUp(self):
+        # (as on macOS and Linux, wherever these run: Windows' own form is Windows' tests')
+        patcher = mock.patch.object(worker, "windows", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_a_job_for_each_entry_run_as_g16_with_its_input_as_standard_input(self):
         jobs = ask("prepare", step="optimise", entries=[ENTRY, {**ENTRY, "name": "water 2"}], options=step_defaults("optimise"), cores=4)["jobs"]
         self.assertEqual(len(jobs), 2)
@@ -277,6 +284,58 @@ class Steps(unittest.TestCase):
         self.assertEqual(ask("collect", step="frequencies", entries=[ENTRY], options={}, files={}, log=DIED, ended="done"), {"why": "Gaussian stopped without saying why, after: Berny optimization."})
         both = " Normal termination of Gaussian 16\n" + FAILED
         self.assertIn("why", ask("collect", step="optimise", entries=[ENTRY], options={}, files={}, log=both, ended="done"))
+
+
+class OnWindows(unittest.TestCase):
+    """Gaussian 16W given its input and its output file by name, its output read back from that file."""
+
+    def setUp(self):
+        patcher = mock.patch.object(worker, "windows", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_job_names_its_input_and_output_and_reads_the_output_back(self):
+        [job] = ask("prepare", step="optimise", entries=[ENTRY], options=step_defaults("optimise"), cores=2)["jobs"]
+        # (`g16 input.gjf input.log`: no standard input; its output a file of the job's, read back with its wavefunction)
+        self.assertEqual((job["program"], job["args"], job["reads"]), ("g16", ["input.gjf", "input.log"], ["wavefunction.wfx", "input.log"]))
+        self.assertNotIn("stdin", job)
+        self.assertEqual(job["files"][0]["name"], "input.gjf")
+        # (the same input as elsewhere: only how it is run differs)
+        with mock.patch.object(worker, "windows", return_value=False):
+            [elsewhere] = ask("prepare", step="optimise", entries=[ENTRY], options=step_defaults("optimise"), cores=2)["jobs"]
+        self.assertEqual(job["files"], elsewhere["files"])
+        [energy] = ask("prepare", step="energy", entries=[ENTRY], options={**step_defaults("energy"), "wavefunction": False}, cores=2)["jobs"]
+        self.assertEqual(energy["reads"], ["input.log"])
+
+    def test_its_output_is_the_file_it_wrote_never_the_log(self):
+        done = " Normal termination of Gaussian 16"
+        read = ask("collect", step="optimise", entries=[ENTRY], options={}, files={"input.log": done}, log="", ended="done")
+        self.assertEqual(read, {"read": [{"kind": "gaussian", "file": "input.log", "name": "water.log"}]})
+        read = ask("collect", step="optimise", entries=[ENTRY], options={}, files={"input.log": done, "wavefunction.wfx": "<Title>"}, log="", ended="done")
+        self.assertEqual(read["read"][0]["wavefunction"]["file"], "wavefunction.wfx")
+        # (what the log says is not Gaussian's output there: a failure is the file's to say)
+        self.assertEqual(ask("collect", step="optimise", entries=[ENTRY], options={}, files={"input.log": FAILED}, log=done, ended="done"), {"why": "A made-up reason the run stopped."})
+        stopped = ask("collect", step="optimise", entries=[ENTRY], options={}, files={"input.log": " Berny optimization.\n" + FAILED}, log="", ended="failed")
+        self.assertEqual(stopped["partial"], [{"kind": "gaussian", "file": "input.log", "name": "water.log"}])
+        # (no file written: nothing said)
+        self.assertEqual(ask("collect", step="energy", entries=[ENTRY], options={}, files={}, log="", ended="failed"), {"why": "Gaussian said nothing"})
+
+    def test_the_manifest_names_its_program_on_windows(self):
+        installed = json.loads(MANIFEST.read_text(encoding="utf-8"))["installed"][0]
+        self.assertEqual(installed["files"]["windows"], "g16.exe")
+        self.assertEqual(installed["env"]["GAUSS_EXEDIR"], "{folder}")
+
+
+class SystemForm(unittest.TestCase):
+    """Which form a job takes, as the system the worker runs on says it."""
+
+    def test_the_form_follows_the_system_the_worker_runs_on(self):
+        # (windows() itself, unpatched: Windows by sys.platform's "win32" alone - macOS and Linux the standard input's form)
+        for system, named in [("win32", True), ("darwin", False), ("linux", False)]:
+            with mock.patch.object(worker.sys, "platform", system):
+                self.assertEqual(worker.windows(), named, system)
+                [job] = ask("prepare", step="energy", entries=[ENTRY], options={**step_defaults("energy"), "wavefunction": False}, cores=1)["jobs"]
+                self.assertEqual((job["args"], job.get("stdin"), job["reads"]), (["input.gjf", "input.log"], None, ["input.log"]) if named else ([], "input.gjf", []), system)
 
 
 if __name__ == "__main__":
