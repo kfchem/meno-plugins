@@ -182,8 +182,8 @@ def held(step, options, entry):
 
 
 def fix_input(atoms):
-    """xcontrol(7)'s `$fix` group: the atoms fixed exactly - their gradient set to zero as it optimises - and its `$opt`
-    group's engine, L-BFGS: xtb 6.7.1's own optimiser (ANCopt) moved an atom so fixed, L-BFGS held it where it stood."""
+    """xcontrol(7)'s `$fix` group: the atoms fixed exactly - their gradient set to zero as it optimises - with its `$opt`
+    group's `engine` asked to be L-BFGS (`engine=lbfgs`), the optimiser this plugin holds atoms fixed with."""
     return f"$fix\n   atoms: {','.join(str(a) for a in atoms)}\n$end\n$opt\n   engine=lbfgs\n$end\n"
 
 
