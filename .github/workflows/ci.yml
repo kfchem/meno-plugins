@@ -44,18 +44,11 @@ jobs:
             tests: tests/test_reader_cclib.py
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      # (Meno beside it: what a test checks against Meno's own, as the RDKit plugin's radii - MENO_CHECKOUT)
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          repository: kfchem/meno
-          path: meno
       - run: |
           python3 -m venv "$RUNNER_TEMP/env"
           "$RUNNER_TEMP/env/bin/python" -m pip install --require-hashes --no-deps -r plugins/${{ matrix.plugin }}/requirements.lock
       - run: '"$RUNNER_TEMP/env/bin/python" -c "import ${{ matrix.needs }}"'
       - run: '"$RUNNER_TEMP/env/bin/python" -m unittest ${{ matrix.tests }}'
-        env:
-          MENO_CHECKOUT: ${{ github.workspace }}/meno
 
   contract:
     # Each manifest as Meno takes it: Meno's own reading of a manifest, from its main.

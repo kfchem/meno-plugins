@@ -1,7 +1,7 @@
 {
   "id": "rdkit",
   "name": "RDKit",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "uses": [{"name": "RDKit", "version": "2026.03.6"}],
   "description": "Makes sense of a structure as it is drawn - its hydrogens, valence, aromatic rings, and R and S, E and Z - reads and writes SMILES, and makes structures in 3D and their conformers.",
   "licence": "BSD-3-Clause",

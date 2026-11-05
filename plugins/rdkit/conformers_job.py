@@ -34,8 +34,9 @@ def main():
     print(f"RDKit {rdBase.rdkitVersion}: up to {how['count']} conformers of {mol.GetNumAtoms()} atoms, {how['field']}", flush=True)
     if rows:
         print(f"with {worker.restraints_words(rows)}", flush=True)
-    made = worker.conformers(mol, **how, rows=rows)
-    print(f"{len(made['frames'])} kept", flush=True)
+    # (a molecule with metals held as Meno says: lib/chem/metalHolds)
+    made = worker.conformers(mol, **how, rows=rows, holds=worker.holds_of(given))
+    print(f"{len(made['frames'])} made", flush=True)
     with open(worker.CONFORMERS_OUT, "w", encoding="utf-8") as f:
         json.dump({"version": rdBase.rdkitVersion, **made}, f)
 
