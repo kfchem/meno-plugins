@@ -86,6 +86,24 @@ class Prepare(unittest.TestCase):
         self.assertEqual(lines[-1], "*")
         self.assertEqual(jobs[1]["files"][0]["text"].splitlines()[2], "* xyz -1 2")
 
+    def test_an_optimisation_holds_the_atoms_fixed_meno_asks_it_to_from_0_as_orca_numbers_them(self):
+        fixed = {**WATER, "restraints": [{"kind": "fixed", "atoms": [2, 0]}, {"kind": "fixed", "atoms": [0]}]}
+        lines = ask("prepare", step="optimise", entries=[fixed], options={**defaults("optimise"), "hold": "fixed"})["jobs"][0]["files"][0]["text"].splitlines()
+        self.assertIn("%geom Constraints {C 0 C} {C 2 C} end end", lines)
+        # (a saddle point's: one %geom block, its first Hessian and the constraints together)
+        saddle = ask("prepare", step="saddle-point", entries=[fixed], options={**defaults("saddle-point"), "method": "B3LYP", "hold": "fixed"})["jobs"][0]["files"][0]["text"].splitlines()
+        self.assertEqual([l for l in saddle if l.startswith("%geom")], ["%geom Calc_Hess true Constraints {C 0 C} {C 2 C} end end"])
+        # (not asked to - Meno's default - nothing fixed, or a single point: no constraint)
+        for step, options, entry in [("optimise", defaults("optimise"), fixed), ("optimise", {**defaults("optimise"), "hold": "fixed"}, WATER), ("energy", {**defaults("energy"), "hold": "fixed"}, fixed)]:
+            text = ask("prepare", step=step, entries=[entry], options=options)["jobs"][0]["files"][0]["text"]
+            self.assertNotIn("Constraints", text)
+
+    def test_an_optimisation_asked_to_hold_a_torsion_refuses_that_entry_alone_naming_it(self):
+        both = {**WATER, "restraints": [{"kind": "fixed", "atoms": [0]}, {"kind": "dihedral", "atoms": [0, 1, 2, 0], "value": 180, "strength": 1}]}
+        out = ask("prepare", step="optimise", entries=[both, WATER], options={**defaults("optimise"), "hold": "fixed"})
+        self.assertEqual([j["entries"] for j in out["jobs"]], [[1]])
+        self.assertEqual(out["refused"], [{"entry": 0, "why": "ORCA: its restraints hold dihedral, which it holds none of: only atoms fixed.", "kind": "refused"}])
+
     def test_each_kind_its_run_solvation_memory_and_one_process_unsaid(self):
         energy = ask("prepare", step="energy", entries=[WATER], options={**defaults("energy"), "solvation": "CPCM", "solvent": "tetrahydrofuran", "maxcore": 3000})["jobs"][0]
         lines = energy["files"][0]["text"].splitlines()
