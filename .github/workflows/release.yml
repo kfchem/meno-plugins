@@ -1,7 +1,13 @@
 name: Release a plugin
 
-# A tag <id>-v<version>: that plugin's folder packed and released, then the catalogue made again from every plugin's
-# latest release and signed. Its signing key is the repository's (CATALOGUE_SIGNING_KEY, CATALOGUE_SIGNING_PASSWORD).
+# A tag <id>-v<version>, on main: that plugin's folder checked, packed and released (`pack`); then the catalogue made
+# again from every plugin's latest release and signed (`catalogue`). Its signing key is the repository's
+# (CATALOGUE_SIGNING_KEY, CATALOGUE_SIGNING_PASSWORD).
+#
+# Many tags may be pushed at once (the first releases): each one's `pack` runs as it comes, but the catalogue is made
+# by one run at a time (`concurrency`, never cancelling one under way). One waiting may give way to a later one; that
+# is no loss, as each makes the catalogue from every release there is - so the last made holds them all, and each
+# signed has a serial one above the one before.
 on:
   push:
     tags: ["*-v*"]
@@ -10,18 +16,23 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  pack:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: The tag is a plugin's version
+        with:
+          fetch-depth: 0
+      - name: The tag is a plugin's version, on main
         id: tag
         run: |
           tag="${GITHUB_REF_NAME}"
           id="${tag%-v*}"; version="${tag##*-v}"
           test -f "plugins/$id/manifest.json"
           test "$(python3 -c "import json;print(json.load(open('plugins/$id/manifest.json'))['version'])")" = "$version"
+          # (a tag on a commit main does not hold - a branch's - releases nothing, and signs nothing)
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           echo "id=$id" >> "$GITHUB_OUTPUT"; echo "version=$version" >> "$GITHUB_OUTPUT"
+      # (the folders' layout and marks; each plugin's own tests run in CI on every pull request before it reaches main)
       - run: python3 -m unittest tests/test_layout.py tests/test_marks.py
       - name: Its archive, released
         env:
@@ -29,7 +40,16 @@ jobs:
         run: |
           python3 -I tools/pack.py "plugins/${{ steps.tag.outputs.id }}" dist > dist.txt
           gh release create "$GITHUB_REF_NAME" "$(head -1 dist.txt)" --title "$GITHUB_REF_NAME" --notes "${{ steps.tag.outputs.id }} ${{ steps.tag.outputs.version }}" --latest=false
-      - name: The catalogue, made again and signed
+
+  catalogue:
+    needs: pack
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: catalogue
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: The catalogue, made again from every release and signed
         env:
           GH_TOKEN: ${{ github.token }}
           KEY: ${{ secrets.CATALOGUE_SIGNING_KEY }}
