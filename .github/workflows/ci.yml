@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: |
           set -e
-          for t in tests/test_layout.py tests/test_versions.py tests/test_marks.py tests/test_published.py tests/test_build_catalogue.py tests/test_plugin_gaussian.py tests/test_reader_gaussian.py \
+          for t in tests/test_layout.py tests/test_versions.py tests/test_marks.py tests/test_published.py tests/test_build_catalogue.py tests/test_system_locks.py tests/test_plugin_gaussian.py tests/test_reader_gaussian.py \
                    tests/test_plugin_orca.py tests/test_reader_orca.py tests/test_plugin_xtb.py tests/test_reader_xtb.py \
                    tests/test_plugin_crest.py tests/test_plugin_blender.py tests/test_plugin_blender_presets.py \
                    tests/test_plugin_nci.py tests/test_plugin_pictures.py tests/test_plugin_reinvent.py \
@@ -78,3 +78,34 @@ jobs:
         working-directory: meno
         env:
           MENO_PLUGINS_DIR: ${{ github.workspace }}/plugins-repo/plugins
+
+  released:
+    # The catalogue built from these plugins, and each manifest, as each released Meno still in use reads them
+    # (tools/released.txt): a Meno out already cannot be changed, so nothing it cannot read may reach it.
+    name: As released Menos read them
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: plugins-repo
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: The catalogue built from these plugins
+        working-directory: plugins-repo
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/archives"
+          for p in plugins/*/; do python3 -I tools/pack.py "$p" "$RUNNER_TEMP/archives" > /dev/null; done
+          python3 -I tools/build_catalogue.py "$RUNNER_TEMP/archives" "https://github.com/${GITHUB_REPOSITORY}/releases/download" 2026-01-01T00:00:00Z > "$RUNNER_TEMP/catalogue.json"
+      - name: Read by each released Meno
+        run: |
+          set -e
+          for tag in $(grep -v '^#' plugins-repo/tools/released.txt | grep .); do
+            echo "== $tag"
+            rm -rf "meno-$tag"
+            git clone -q --depth 1 --branch "$tag" https://github.com/kfchem/meno.git "meno-$tag"
+            (cd "meno-$tag" && npm ci --no-audit --no-fund > /dev/null)
+            cp plugins-repo/tools/released.test.ts "meno-$tag/src/lib/plugins/released.test.ts"
+            (cd "meno-$tag" && CATALOGUE="$RUNNER_TEMP/catalogue.json" PLUGINS_DIR="${{ github.workspace }}/plugins-repo/plugins" npx --no-install vitest run src/lib/plugins/released.test.ts)
+          done

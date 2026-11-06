@@ -12,7 +12,7 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
 # Public License, in this folder's LICENSE, for more details.
-"""The kit a film motion is keyed with (docs/plugins/blender-presets.md, *A motion*).
+"""The kit a film motion is keyed with (docs/blender-presets.md, *A motion*).
 
 A motion's `key(ctx)` calls `run(ctx, module, nominal)`, which executes this kit in a namespace holding `CFG` - the motion's
 settings, from `ctx.request` - and `CTX`, and hands the names it defines to the motion's module, whose `keyed()` then keys
@@ -532,5 +532,5 @@ def finish(bloom=0.12, streaks=0.0, dispersion=0.012, vignette=0.35, grain=0.012
 # --- render --------------------------------------------------------------------------
 
 def render():
-    """The renderer renders the frames the motion keyed (docs/plugins/blender-presets.md): nothing here."""
+    """The renderer renders the frames the motion keyed (docs/blender-presets.md): nothing here."""
     return None

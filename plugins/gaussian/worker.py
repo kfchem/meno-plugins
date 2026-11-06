@@ -14,6 +14,7 @@ line on stdin, one per line back on stdout, as every plugin's:
     {"id": 3, "ok": true, "result": {"text": "..."}}
     {"id": 4, "op": "prepare", "step": "optimise", "entries": [...], "options": {...}, "cores": 4}
     {"id": 4, "ok": true, "result": {"jobs": [{"entries": [0], "program": "g16", "args": [], "stdin": "input.gjf", ...}]}}
+    (on Windows: {"program": "g16", "args": ["input.gjf", "input.log"], "reads": ["input.log"], ...})
     {"id": 5, "op": "collect", "step": "optimise", "entries": [...], "files": {}, "log": "...", "ended": "done"}
     {"id": 5, "ok": true, "result": {"read": [{"kind": "gaussian", "log": true, "name": "water.log",
         "wavefunction": {"kind": "wfx", "file": "wavefunction.wfx", "name": "water.wfx"}}]}}
@@ -34,8 +35,13 @@ it - `g16 <input-file >output-file`: given no job name, Gaussian reads its
 input from standard input and writes its output to standard output, which
 is the job's log, followed by Meno as it runs; the scratch files where it
 runs; its folder `g16root` the one above Gaussian's own and GAUSS_EXEDIR
-Gaussian's own. `collect` reads nothing: it says that the log is
-Gaussian's output, for Meno's readers to read as one opened is - and,
+Gaussian's own. On Windows, Gaussian 16W is given its input file and its
+output file by name, in that order - as its GaussView help has it
+("Specifying How the Gaussian Program is Executed", the Windows program's
+command line) - its output read back from that file after the run, as a
+default name for it is documented nowhere; GAUSS_EXEDIR is its folder, as
+its release notes' "Input Notes" have it. `collect` reads nothing: it says
+that the log (on Windows, that file) is Gaussian's output, for Meno's readers to read as one opened is - and,
 where Gaussian wrote one, that its wavefunction is kept with the molecule,
 for a step that takes one (Multiwfn's NCI) - or, where the job failed,
 why, as the output says, judged as `read` judges it (reader.run_of).
@@ -90,7 +96,7 @@ import sys
 
 import reader
 
-VERSION = "0.5.2"
+VERSION = "0.6.0"
 
 # The elements by atomic number, from 1: what an atom's element may be.
 SYMBOLS = (
@@ -178,8 +184,11 @@ def coordinate(atom, axis):
     return float(v)
 
 
-def gaussian_input(name, molecule, options):
-    """The input file's text, as the reference lays it out."""
+def gaussian_input(name, molecule, options, sections=(), job_route=None):
+    """The input file's text, as the reference lays it out - and, after the molecule, further molecule specifications
+    where the job takes several (`sections`, each a title and a molecule, the charge and multiplicity the first's:
+    Opt=QST3's product and guess after its reactant), the job's route words given whole (`job_route`) where it is no
+    `job` of JOBS."""
     atoms = molecule.get("atoms") or []
     if not atoms:
         raise Refused("there are no atoms to write")
@@ -210,7 +219,7 @@ def gaussian_input(name, molecule, options):
     method = route_words(options.get("method", ""), "The method")
     basis = route_words(options.get("basis", ""), "The basis set")
     chemistry = "/".join(p for p in (method, basis) if p)
-    job = JOBS.get(options.get("job", "sp"))
+    job = job_route or JOBS.get(options.get("job", "sp"))
     if job is None:
         raise Refused(f"no job is called {options.get('job')!r}")
     dispersion = DISPERSIONS.get(options.get("dispersion", "none"))
@@ -230,14 +239,28 @@ def gaussian_input(name, molecule, options):
         x, y, z = (coordinate(a, axis) for axis in ("x", "y", "z"))
         lines.append(f"{element_label(a):<10}{x:>16.8f}{y:>16.8f}{z:>16.8f}")
     lines.append("")
+    # (each further molecule specification after its own title section and blank line, its atoms in the first's order -
+    #  the elements the same, as Opt=QST3 needs them)
+    for title, other in sections:
+        others = other.get("atoms") or []
+        if [a.get("el") for a in others] != [a.get("el") for a in atoms]:
+            raise Refused("the structures given together are not the same atoms in one order")
+        lines.append(title_of(title, title))
+        lines.append("")
+        lines.append(f"{charge} {multiplicity}")
+        for a in others:
+            x, y, z = (coordinate(a, axis) for axis in ("x", "y", "z"))
+            lines.append(f"{element_label(a):<10}{x:>16.8f}{y:>16.8f}{z:>16.8f}")
+        lines.append("")
     return "\n".join(lines) + "\n"
 
 
 # --- a workflow's steps ---------------------------------------------------------
 
 PROGRAM = "g16"
-# the input file, which Gaussian reads as its standard input
+# the input file, which Gaussian reads as its standard input - on Windows, named on its command line, with its output's
 INPUT = "input.gjf"
+OUTPUT = "input.log"
 # what Gaussian's output is, as Meno's readers know it (their manifests' kinds)
 KIND = "gaussian"
 # the wavefunction a step's job keeps, and what kind of file it is: Meno's own kind of WFX file
@@ -258,14 +281,48 @@ SOLVENTS = {
 }
 
 
-def step_input(step, entry, options, cores):
-    """An entry's input for a step: the job its kind is, solvated as asked - SCRF=(PCM,Solvent=...) or SMD - the processors it may use from Meno's cores, no checkpoint."""
-    job = STEP_JOBS.get(step)
-    if job is None:
-        raise Refused(f"this plugin does no {step!r}")
-    # (a lone atom: its energy where it is)
-    if step == "optimise" and len(entry.get("atoms") or []) == 1:
-        job = STEP_JOBS["energy"]
+#: An optimisation to a saddle point (*Optimise to a saddle point*): from its guess alone, Opt=TS - eigenvector following,
+#: the curvature not checked (NoEigenTest) - or, its two sides wired with it, Opt=QST3: the reactant, the product and
+#: the guess, in that order, each a molecule specification of its own (the Gaussian 16 reference, Opt, QST3). Its first
+#: Hessian computed (CalcFC) where its *First Hessian* option says so; Opt=Tight where its *Tight convergence* says so.
+SADDLE = "saddle-point"
+HESSIANS = {"computed": "CalcFC", "model": ""}
+
+
+def saddle_input(entry, options, cores):
+    """An entry's input for an optimisation to a saddle point: Opt=TS from it alone, or Opt=QST3 from its sides and it."""
+    hessian = HESSIANS.get(options.get("hessian", "computed"))
+    if hessian is None:
+        raise Refused(f"no first Hessian is called {options.get('hessian')!r}")
+    tight = options.get("tight", False)
+    if not isinstance(tight, bool):
+        raise Refused("Tight convergence is neither on nor off")
+    sides = entry.get("sides")
+    if sides is not None and (not isinstance(sides, dict) or not sides.get("reactant") or not sides.get("product")):
+        raise Refused("a saddle point's sides are both, or neither")
+    how = ["QST3"] if sides else ["TS", "NoEigenTest"]
+    route = "Opt=(" + ",".join(how + ([hessian] if hessian else []) + (["Tight"] if tight else [])) + ")"
+    given = {**common(options, cores, entry), "keywords": common_keywords(options, False)}
+    name = entry.get("name") or "guess"
+    if not sides:
+        return gaussian_input(INPUT, entry, given, job_route=route)
+    return gaussian_input(INPUT, sides["reactant"], {**given, "title": f"{name} reactant side"}, sections=[(f"{name} product side", sides["product"]), (f"{name} guess", entry)], job_route=route)
+
+
+def common(options, cores, entry):
+    """What every step's input takes from its options and entry: the charge and multiplicity, the title, no checkpoint, the processors."""
+    return {
+        **options,
+        "charge": entry.get("charge", 0),
+        "multiplicity": entry.get("multiplicity", 1),
+        "title": entry.get("name") or "",
+        "checkpoint": False,
+        "processors": whole(cores, "The cores", 1) if cores else 0,
+    }
+
+
+def common_keywords(options, keep):
+    """The route words besides the job: the solvation as asked - SCRF=(PCM,Solvent=...) or SMD - the keywords, Output=WFX where the wavefunction is kept."""
     solvation = options.get("solvation", "none")
     if solvation not in SOLVATIONS:
         raise Refused(f"no solvation is called {solvation!r}")
@@ -274,17 +331,21 @@ def step_input(step, entry, options, cores):
         raise Refused(f"no solvent is called {solvent!r}")
     more = one_line(options.get("keywords", ""), "The keywords")
     scrf = f"SCRF=({solvation},Solvent={solvent})" if solvation != "none" else ""
+    return " ".join(p for p in (scrf, more, "Output=WFX" if keep else "") if p)
+
+
+def step_input(step, entry, options, cores):
+    """An entry's input for a step: the job its kind is, solvated as asked - SCRF=(PCM,Solvent=...) or SMD - the processors it may use from Meno's cores, no checkpoint."""
+    if step == SADDLE:
+        return saddle_input(entry, options, cores)
+    job = STEP_JOBS.get(step)
+    if job is None:
+        raise Refused(f"this plugin does no {step!r}")
+    # (a lone atom: its energy where it is)
+    if step == "optimise" and len(entry.get("atoms") or []) == 1:
+        job = STEP_JOBS["energy"]
     keep = keeps_wavefunction(options)
-    given = {
-        **options,
-        "job": job,
-        "keywords": " ".join(p for p in (scrf, more, "Output=WFX" if keep else "") if p),
-        "charge": entry.get("charge", 0),
-        "multiplicity": entry.get("multiplicity", 1),
-        "title": entry.get("name") or "",
-        "checkpoint": False,
-        "processors": whole(cores, "The cores", 1) if cores else 0,
-    }
+    given = {**common(options, cores, entry), "job": job, "keywords": common_keywords(options, keep)}
     text = gaussian_input(INPUT, entry, given)
     # (the wavefunction's file, named on a line of its own after the molecule)
     return text + f"{WAVEFUNCTION}\n\n" if keep else text
@@ -312,18 +373,27 @@ def memory_of(options):
     return max(1, math.ceil(int(number) * MEMORY_MIB[unit]))
 
 
+def windows():
+    """Whether Gaussian runs on Windows here - Gaussian 16W, given its input and output files by name - as the worker runs
+    on the computer its jobs do."""
+    return sys.platform == "win32"
+
+
 def op_prepare(m):
     options = m.get("options") or {}
     memory = memory_of(options)
+    named = windows()
     jobs = []
     for i, entry in enumerate(m.get("entries") or []):
         jobs.append({
             "entries": [i],
             "program": PROGRAM,
-            "args": [],
+            # (on Windows: `g16 input.gjf input.log`, its output in that file - else from standard input to the log)
+            "args": [INPUT, OUTPUT] if named else [],
             "files": [{"name": INPUT, "text": step_input(m.get("step"), entry, options, m.get("cores"))}],
-            "stdin": INPUT,
-            "reads": [WAVEFUNCTION] if keeps_wavefunction(options) else [],
+            **({} if named else {"stdin": INPUT}),
+            # (a saddle point's step keeps no wavefunction: none written; on Windows, its output read back from its file)
+            "reads": ([WAVEFUNCTION] if keeps_wavefunction(options) and m.get("step") != SADDLE else []) + ([OUTPUT] if named else []),
             **({"memory": memory} if memory else {}),
         })
     if not jobs:
@@ -358,17 +428,21 @@ def ended_well(output):
 
 
 def op_collect(m):
-    if m.get("step") not in STEP_JOBS:
+    if m.get("step") not in STEP_JOBS and m.get("step") != SADDLE:
         raise Refused(f"this plugin does no {m.get('step')!r}")
-    output = m.get("log") or ""
+    files = m.get("files") or {}
+    # (its output: the log - on Windows, the file Gaussian was told to write, read back; none where it wrote none)
+    named = windows()
+    output = (files.get(OUTPUT) if named else m.get("log")) or ""
+    where = {"file": OUTPUT} if named else {"log": True}
     if m.get("ended") != "done" or not ended_well(output):
         # (an optimisation that stopped: what it wrote read too, where it wrote anything - the geometry it reached, for a
         #  run again to start from - never as a result)
-        partial = [{"kind": KIND, "log": True, "name": output_name(e)} for e in m.get("entries") or []] if m.get("step") in PARTIAL_STEPS and OPTIMISING in output else []
+        partial = [{"kind": KIND, **where, "name": output_name(e)} for e in m.get("entries") or []] if m.get("step") in PARTIAL_STEPS and OPTIMISING in output else []
         return {"why": why_of(output), **({"partial": partial} if partial else {})}
     # (its wavefunction, where it wrote one: read back by Meno, kept with the molecule)
-    wrote = WAVEFUNCTION in (m.get("files") or {})
-    return {"read": [{"kind": KIND, "log": True, "name": output_name(e), **({"wavefunction": wavefunction_of(e)} if wrote else {})} for e in m.get("entries") or []]}
+    wrote = WAVEFUNCTION in files
+    return {"read": [{"kind": KIND, **where, "name": output_name(e), **({"wavefunction": wavefunction_of(e)} if wrote else {})} for e in m.get("entries") or []]}
 
 
 def wavefunction_of(entry):

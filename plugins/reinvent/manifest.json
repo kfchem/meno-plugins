@@ -1,14 +1,14 @@
 {
   "id": "reinvent",
   "name": "REINVENT 4",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "uses": [{"name": "REINVENT", "version": "4.8.24+80a8d21"}],
   "description": "Makes new molecules with REINVENT 4, a generative model of SMILES: samples them from its prior trained on PubChem, each given as the SMILES it sampled, with its likelihood: every one it samples, duplicates too, for Meno's own steps to keep or set aside.",
   "licence": "Apache-2.0",
   "homepage": "https://github.com/MolecularAI/REINVENT4",
   "environment": "uv",
   "setUpBytes": 1000000000,
-  "systems": ["macos"],
+  "systems": ["macos", "windows"],
   "steps": [
     {
       "kinds": ["generate"],
