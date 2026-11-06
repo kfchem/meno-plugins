@@ -6,7 +6,7 @@
 and the floor), and the shards gather into B's atoms, which fuse in a wave up from the paper; B's bonds are drawn after.
 The rigid bodies are baked, turned to keys, then blended into the flights.
 
-Keyed with the kit (motionkit.py) and the change module (change.py), on Meno's molecules: docs/plugins/blender-presets.md,
+Keyed with the kit (motionkit.py) and the change module (change.py), on Meno's molecules: docs/blender-presets.md,
 *A motion*.
 """
 import motion_kit as kit

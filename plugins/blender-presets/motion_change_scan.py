@@ -6,7 +6,7 @@
 above it B is a hologram - a rim of light, seen through - that turns solid a little higher; the sheet goes on to the
 paper and fades. A and B stand in the same place.
 
-Keyed with the kit (motionkit.py) and the change module (change.py), on Meno's molecules: docs/plugins/blender-presets.md,
+Keyed with the kit (motionkit.py) and the change module (change.py), on Meno's molecules: docs/blender-presets.md,
 *A motion*.
 """
 import motion_kit as kit
