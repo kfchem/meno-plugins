@@ -42,4 +42,7 @@ the reply's end, and the service 30 seconds of silence (10 to connect);
 past either it says, in words, that the service took too long. A request
 that fails to connect, or that the service is too busy for, is asked again
 once. With a silence at its very end, a request ends inside Meno's wait.
+A long reply - many thousand tokens, at a high effort - may not finish in
+that time: then lower its length, or how hard it thinks, in Settings,
+*Conversations*.
 

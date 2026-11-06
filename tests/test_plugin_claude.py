@@ -252,8 +252,11 @@ class Converse(unittest.TestCase):
         self.assertEqual(got["error"], "The service took too long to answer: try again in a minute")
         # (given up as soon as it had taken too long - not read on to its end)
         self.assertLess(time.monotonic() - begun, 0.05 * len(parts))
-        # (a request's whole time, a silence at its end too, under Meno's own wait: 3 minutes)
-        self.assertLess(load().DEADLINE + load().SILENT, 180)
+        # (a request's whole time, a silence at its end too, under Meno's own wait: 3 minutes - as the client is made)
+        fresh = load()
+        self.assertLess(fresh.DEADLINE + fresh.SILENT, 180)
+        made = fresh.client(KEY)
+        self.assertEqual((made.timeout.read, made.timeout.connect, made.max_retries), (fresh.SILENT, 10.0, 1))
 
 
 if __name__ == "__main__":
