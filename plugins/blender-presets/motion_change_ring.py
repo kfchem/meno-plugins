@@ -8,7 +8,7 @@ size until it lands, where it becomes B's element with a squash and a glint. Whe
 ring beside its source; where fewer, the spare ones fall into a neighbour and are gone. B's bonds are drawn as their two
 atoms have landed.
 
-Keyed with the kit (motionkit.py) and the change module (change.py), on Meno's molecules: docs/plugins/blender-presets.md,
+Keyed with the kit (motionkit.py) and the change module (change.py), on Meno's molecules: docs/blender-presets.md,
 *A motion*.
 """
 import motion_kit as kit

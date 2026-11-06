@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Meno contributors. Under the GPL, in this plugin's LICENSE.
-"""What the two studios share (docs/plugins/blender-presets.md, *A studio*): where Meno's molecules stand, and lights and
+"""What the two studios share (docs/blender-presets.md, *A studio*): where Meno's molecules stand, and lights and
 surfaces sized to them.
 
 A studio is drawn here in metres for a molecule at 4 cm an ångström - the size of a product on a table - and put round

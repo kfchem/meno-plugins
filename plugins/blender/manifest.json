@@ -1,14 +1,14 @@
 {
   "id": "blender",
   "name": "Blender",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "uses": [
     {
       "name": "Blender",
       "version": "5.2.2"
     }
   ],
-  "description": "Renders Meno's scene with Blender, as a picture or a film, as Meno asks; looks, studios and motions of Blender's own come from preset plugins that use it (docs/plugins/blender-presets.md).",
+  "description": "Renders Meno's scene with Blender, as a picture or a film, as Meno asks; looks, studios and motions of Blender's own come from preset plugins that use it (docs/blender-presets.md).",
   "licence": "GPL-3.0-or-later",
   "homepage": "https://www.blender.org",
   "environment": "uv",

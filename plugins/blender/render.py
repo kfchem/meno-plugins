@@ -48,7 +48,7 @@ The settings (all checked by the worker that wrote them):
     key, ambient   the key light's and the light all round's strengths, as factors of Meno's
     softness    how soft the shadows are: the key light's width, in degrees
     quality     a film's: "high", "medium" or "lossless"
-    presets     where a preset plugin's look, studio or motion is chosen (docs/plugins/blender-presets.md): for each such
+    presets     where a preset plugin's look, studio or motion is chosen (docs/blender-presets.md): for each such
                 plugin, which (`from`), the chosen ones' files (`look`, `studio`, `motion`) and its own options (`values`); its files
                 are in the job's folder, under presets/<plugin id>/, put there by Meno
     mode        a film's: "once" or "loop"
@@ -601,7 +601,7 @@ def assemble(frames, s, folder):
         bpy.ops.render.render(write_still=True, scene=made.name)
 
 
-# A look, a studio or a motion of a preset plugin (docs/plugins/blender-presets.md): its module, from the files Meno put in the
+# A look, a studio or a motion of a preset plugin (docs/blender-presets.md): its module, from the files Meno put in the
 # job, run against `ctx` - the request and Meno's molecules as this scene has them - and nothing else.
 
 def built(s, folder, scene_path, gltf, meno):

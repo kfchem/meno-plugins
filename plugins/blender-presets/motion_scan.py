@@ -4,7 +4,7 @@
 # Under the GNU General Public License, version 3 or later: see this plugin's LICENSE.
 """Scan: a sheet of light passes down the molecule, a hologram above it and the solid below.
 
-Keyed with the kit (motionkit.py) on Meno's molecule: docs/plugins/blender-presets.md, *A motion*.
+Keyed with the kit (motionkit.py) on Meno's molecule: docs/blender-presets.md, *A motion*.
 """
 import motion_kit as kit
 

@@ -4,7 +4,7 @@
 # Under the GNU General Public License, version 3 or later: see this plugin's LICENSE.
 """Assemble: the atoms fly in on curves and land with a squash, in waves outward from the middle, and each bond is drawn by a bright front.
 
-Keyed with the kit (motionkit.py) on Meno's molecule: docs/plugins/blender-presets.md, *A motion*.
+Keyed with the kit (motionkit.py) on Meno's molecule: docs/blender-presets.md, *A motion*.
 """
 import motion_kit as kit
 
