@@ -205,6 +205,46 @@ class Steps(unittest.TestCase):
         freq = ask("prepare", step="frequencies", entries=[ENTRY], options={**step_defaults("frequencies"), "solvation": "PCM", "solvent": "Water", "keywords": "Int=UltraFine"})["jobs"][0]
         self.assertTrue(freq["files"][0]["text"].splitlines()[0].endswith("Freq SCRF=(PCM,Solvent=Water) Int=UltraFine Output=WFX"))
 
+    def test_a_saddle_point_from_its_guess_alone_by_opt_ts_its_first_hessian_computed_unless_asked_not(self):
+        opts = step_defaults("saddle-point")
+        guess = {**ENTRY, "name": "ts 1"}
+        job = ask("prepare", step="saddle-point", entries=[guess], options=opts, cores=2)["jobs"][0]
+        lines = job["files"][0]["text"].splitlines()
+        # (eigenvector following from the guess, the curvature not checked, its force constants computed first - no wavefunction)
+        self.assertEqual(lines[1], "# B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ Opt=(TS,NoEigenTest,CalcFC)")
+        self.assertEqual(job["reads"], [])
+        self.assertEqual(lines.count("0 1"), 1)
+        # (Gaussian's own estimate, and tight convergence: as asked)
+        model = ask("prepare", step="saddle-point", entries=[guess], options={**opts, "hessian": "model", "tight": True})["jobs"][0]["files"][0]["text"].splitlines()
+        self.assertEqual(model[0], "# B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ Opt=(TS,NoEigenTest,Tight)")
+
+    def test_a_saddle_point_with_its_sides_by_opt_qst3_reactant_product_guess_each_a_molecule_of_its_own(self):
+        opts = {**step_defaults("saddle-point"), "hessian": "model", "tight": True}
+        moved = lambda e, dy: {**e, "atoms": [{**a, "y": a["y"] + dy} for a in e["atoms"]]}
+        guess = {**ENTRY, "name": "ts 1", "sides": {"reactant": moved(ENTRY, -0.1), "product": moved(ENTRY, 0.1)}}
+        text = ask("prepare", step="saddle-point", entries=[guess], options=opts)["jobs"][0]["files"][0]["text"]
+        lines = text.splitlines()
+        # (the Gaussian 16 reference, Opt, QST3: the reactants, the products, then the guess - each its title, a blank line, its
+        #  charge and multiplicity and atoms, a blank line - the atoms in one order)
+        self.assertEqual(lines[0], "# B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ Opt=(QST3,Tight)")
+        blocks = [b.splitlines() for b in text.strip("\n").split("\n\n")]
+        self.assertEqual([b[0] for b in blocks[1::2]], ["ts 1 reactant side", "ts 1 product side", "ts 1 guess"])
+        molecules = blocks[2::2]
+        self.assertEqual([m[0] for m in molecules], ["0 1", "0 1", "0 1"])
+        self.assertEqual([float(m[2].split()[2]) for m in molecules], [ENTRY["atoms"][1]["y"] - 0.1, ENTRY["atoms"][1]["y"] + 0.1, ENTRY["atoms"][1]["y"]])
+        # (computed first, where asked)
+        computed = ask("prepare", step="saddle-point", entries=[guess], options={**opts, "hessian": "computed", "tight": False})["jobs"][0]["files"][0]["text"]
+        self.assertEqual(computed.splitlines()[0], "# B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ Opt=(QST3,CalcFC)")
+        # (sides not the same atoms in one order, or one side alone: refused)
+        for sides in ({"reactant": {**ENTRY, "atoms": ENTRY["atoms"][::-1]}, "product": ENTRY}, {"reactant": ENTRY}):
+            said = worker.answer(json.dumps({"id": 1, "op": "prepare", "step": "saddle-point", "entries": [{**guess, "sides": sides}], "options": opts}))
+            self.assertFalse(said["ok"])
+
+    def test_a_saddle_point_s_output_read_as_an_optimisations_is(self):
+        done = " Optimization completed.\n Normal termination of Gaussian 16 at Thu Oct  8 12:00:00 2026.\n"
+        self.assertEqual(ask("collect", step="saddle-point", entries=[ENTRY], options={}, files={}, log=done, ended="done"), {"read": [{"kind": "gaussian", "log": True, "name": "water.log"}]})
+        self.assertIn("why", ask("collect", step="saddle-point", entries=[ENTRY], options={}, files={}, log=FAILED, ended="failed"))
+
     def test_refuses_what_it_does_not_know(self):
         for options in ({"solvation": "COSMO"}, {"solvation": "PCM", "solvent": "Lava"}, {"dispersion": "D9"}):
             said = worker.answer(json.dumps({"id": 1, "op": "prepare", "step": "energy", "entries": [ENTRY], "options": {**step_defaults("energy"), **options}}))
