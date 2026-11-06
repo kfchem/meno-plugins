@@ -347,6 +347,13 @@ class OnWindows(unittest.TestCase):
         [energy] = ask("prepare", step="energy", entries=[ENTRY], options={**step_defaults("energy"), "wavefunction": False}, cores=2)["jobs"]
         self.assertEqual(energy["reads"], ["input.log"])
 
+    def test_a_saddle_point_names_its_files_keeps_no_wavefunction_and_is_read_back_from_its_output_file(self):
+        [job] = ask("prepare", step="saddle-point", entries=[{**ENTRY, "name": "ts 1"}], options=step_defaults("saddle-point"), cores=2)["jobs"]
+        self.assertEqual((job["args"], job["reads"]), (["input.gjf", "input.log"], ["input.log"]))
+        self.assertNotIn("stdin", job)
+        done = " Normal termination of Gaussian 16"
+        self.assertEqual(ask("collect", step="saddle-point", entries=[ENTRY], options={}, files={"input.log": done}, log="", ended="done"), {"read": [{"kind": "gaussian", "file": "input.log", "name": "water.log"}]})
+
     def test_its_output_is_the_file_it_wrote_never_the_log(self):
         done = " Normal termination of Gaussian 16"
         read = ask("collect", step="optimise", entries=[ENTRY], options={}, files={"input.log": done}, log="", ended="done")
