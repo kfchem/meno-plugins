@@ -38,6 +38,7 @@ import importlib.metadata
 import json
 import os
 import sys
+import time
 
 import anthropic
 
@@ -46,19 +47,15 @@ VERSION = importlib.metadata.version("anthropic")
 #: The service's one place: api.anthropic.com, as the plugin's manifest names it - never one the environment names.
 BASE_URL = "https://api.anthropic.com"
 
-#: What could send the SDK elsewhere, or with other credentials, were it in this worker's environment: let go.
-FOREIGN = (
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
-    "ANTHROPIC_PROFILE",
-    "ANTHROPIC_FEDERATION_RULE_ID",
-    "ANTHROPIC_ORGANIZATION_ID",
-    "ANTHROPIC_SERVICE_ACCOUNT_ID",
-    "ANTHROPIC_IDENTITY_TOKEN_FILE",
-    "ANTHROPIC_IDENTITY_TOKEN",
-    "ANTHROPIC_WORKSPACE_ID",
-)
+#: What the SDK reads of the environment begins so: let go, every one - none sends it elsewhere, with other
+#: credentials, or writes what it sends where Meno shows it (`ANTHROPIC_LOG`).
+FOREIGN = "ANTHROPIC_"
+
+#: How long one request may take, in all, in seconds - from asking to the reply's end: under Meno's own wait for an
+#: answer (3 minutes), a stalled read taken into account, so that a stalled service holds no later request behind it.
+DEADLINE = 140.0
+#: How long the service may be silent, in seconds, before the read is given up.
+SILENT = 30.0
 
 #: The models offered, and the default (the manifest's choices).
 MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
@@ -80,10 +77,10 @@ FALLBACK = "server-side-fallback-2026-07-01"
 def client(key, transport=None):
     """The service, as this worker reaches it: by its one address, with the person's key - and, in a test, through
     the transport given."""
-    for name in FOREIGN:
+    for name in [n for n in os.environ if n.startswith(FOREIGN)]:
         os.environ.pop(name, None)
     more = {"http_client": transport} if transport is not None else {}
-    return anthropic.Anthropic(api_key=key, base_url=BASE_URL, max_retries=2, timeout=600.0, **more)
+    return anthropic.Anthropic(api_key=key, base_url=BASE_URL, max_retries=1, timeout=anthropic.Timeout(SILENT, connect=10.0), **more)
 
 
 def options_of(options):
@@ -173,6 +170,8 @@ def words(e):
         return f"The service refused the request ({e.status_code})"
     if isinstance(e, anthropic.APIStatusError):
         return f"The service failed ({e.status_code}): try again in a minute"
+    if isinstance(e, anthropic.APITimeoutError):
+        return "The service took too long to answer: try again in a minute"
     if isinstance(e, anthropic.APIConnectionError):
         return "The service could not be reached: Meno may be offline, or talking to it not allowed"
     return "The service could not be talked to"
@@ -186,6 +185,7 @@ def converse(req, make=client):
     model, effort, tokens = options_of(req.get("options"))
     betas = [BINDING] + ([FALLBACK] if not model.startswith("claude-haiku") else [])
     more = {"fallbacks": "default"} if FALLBACK in betas else {}
+    begun = time.monotonic()
     try:
         with make(key).beta.messages.stream(
             model=model,
@@ -198,6 +198,10 @@ def converse(req, make=client):
             betas=betas,
             **more,
         ) as stream:
+            # (read to its end, or given up once it has taken too long in all)
+            for _ in stream:
+                if time.monotonic() - begun > DEADLINE:
+                    raise RuntimeError("The service took too long to answer: try again in a minute")
             reply = stream.get_final_message()
     except anthropic.APIError as e:
         raise RuntimeError(words(e)) from None

@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -169,7 +170,8 @@ class Converse(unittest.TestCase):
         self.assertEqual(self.worker.answer(json.dumps(asked()), failing)["error"], "something said [key] back")
 
     def test_nothing_in_its_environment_sends_it_elsewhere_or_with_other_credentials(self):
-        for name in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"):
+        # (those the SDK reads now, and one it might read later - each let go)
+        for name in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_PROFILE", "ANTHROPIC_LOG", "ANTHROPIC_SOMETHING_NEW"):
             os.environ[name] = "https://elsewhere.example" if name.endswith("URL") else "other-token"
         service = Service()
         self.worker.answer(json.dumps(asked()), service.make(self.worker))
@@ -177,7 +179,7 @@ class Converse(unittest.TestCase):
         self.assertEqual(request.url.host, "api.anthropic.com")
         self.assertEqual(request.headers["authorization"], f"Bearer {KEY}")
         self.assertNotIn("other-token", json.dumps(dict(request.headers)))
-        self.assertFalse([n for n in self.worker.FOREIGN if n in os.environ])
+        self.assertFalse([n for n in os.environ if n.startswith("ANTHROPIC_")])
 
     def test_a_reply_of_html_or_a_pictures_markdown_comes_back_as_its_words_verbatim(self):
         words = '<img src=x onerror=alert(1)> ![a](http://example.com/y.png) <script>1</script>'
@@ -194,7 +196,12 @@ class Converse(unittest.TestCase):
         # (Haiku has no fallback: none asked)
         self.assertNotIn("fallbacks", body)
         self.assertNotIn("server-side-fallback", service.asked[0].headers["anthropic-beta"])
-        for bad in ({"model": "gpt"}, {"effort": "huge"}, {"reply-tokens": 10}, {"reply-tokens": 64001}, {"reply-tokens": True}):
+        # (a reply's length from 1024 to 64000, each end taken)
+        for tokens in (1024, 64000):
+            service = Service()
+            self.assertTrue(self.worker.answer(json.dumps(asked(options={"reply-tokens": tokens})), service.make(self.worker))["ok"], tokens)
+            self.assertEqual(service.body()["max_tokens"], tokens)
+        for bad in ({"model": "gpt"}, {"effort": "huge"}, {"reply-tokens": 10}, {"reply-tokens": 1023}, {"reply-tokens": 64001}, {"reply-tokens": True}):
             service = Service()
             got = self.worker.answer(json.dumps(asked(options=bad)), service.make(self.worker))
             self.assertFalse(got["ok"], bad)
@@ -205,11 +212,48 @@ class Converse(unittest.TestCase):
         self.assertEqual(declined["error"], "Claude declined to answer this")
         cut = self.worker.answer(json.dumps(asked()), Service(message([{"type": "text", "text": "Half"}], stop="max_tokens")).make(self.worker))
         self.assertTrue(cut["result"]["text"].startswith("Half\n(Cut short"))
-        for status, error, said in ((429, "rate_limit_error", "asked too much"), (500, "api_error", "failed (500)"), (404, "not_found_error", "does not know this model")):
+        for status, error, said in (
+            (400, "invalid_request_error", "The service refused the request (400)"),
+            (403, "permission_error", "The key may not use this model"),
+            (404, "not_found_error", "The service does not know this model"),
+            (429, "rate_limit_error", "The service is asked too much just now: try again in a minute"),
+            (500, "api_error", "The service failed (500): try again in a minute"),
+        ):
             got = self.worker.answer(json.dumps(asked()), Service(status=status, error=error).make(self.worker))
-            self.assertIn(said, got["error"])
+            self.assertEqual(got["error"], said)
+        # (the service not reached - asked again once, then said so)
+        tries = []
+
+        def unreachable(request):
+            tries.append(request)
+            raise httpx2.ConnectError("no route", request=request)
+
+        offline = self.worker.answer(json.dumps(asked()), lambda key: self.worker.client(key, httpx2.Client(transport=httpx2.MockTransport(unreachable))))
+        self.assertEqual(offline["error"], "The service could not be reached: Meno may be offline, or talking to it not allowed")
+        self.assertEqual(len(tries), 2)
         self.assertEqual(self.worker.answer(json.dumps(asked(key="")), Service().make(self.worker))["error"], "No key was given: add it in Settings, Conversations")
         self.assertEqual(self.worker.answer(json.dumps({"id": 1, "op": "read"}))["error"], "Not something this plugin does: read")
+
+    def test_a_reply_that_takes_too_long_in_all_is_given_up_and_said_in_words_in_time(self):
+        events = message([{"type": "text", "text": "Slow"}])
+        parts = [e + b"\n\n" for e in events.split(b"\n\n") if e]
+
+        def slow():
+            for p in parts:
+                time.sleep(0.05)
+                yield p
+
+        def handle(request):
+            return httpx2.Response(200, content=slow(), headers={"content-type": "text/event-stream"})
+
+        self.worker.DEADLINE = 0.1
+        begun = time.monotonic()
+        got = self.worker.answer(json.dumps(asked()), lambda key: self.worker.client(key, httpx2.Client(transport=httpx2.MockTransport(handle))))
+        self.assertEqual(got["error"], "The service took too long to answer: try again in a minute")
+        # (given up as soon as it had taken too long - not read on to its end)
+        self.assertLess(time.monotonic() - begun, 0.05 * len(parts))
+        # (a request's whole time, a silence at its end too, under Meno's own wait: 3 minutes)
+        self.assertLess(load().DEADLINE + load().SILENT, 180)
 
 
 if __name__ == "__main__":

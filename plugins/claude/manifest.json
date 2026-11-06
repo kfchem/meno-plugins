@@ -5,7 +5,7 @@
   "uses": [{"name": "anthropic", "version": "2.1.0"}],
   "description": "Talks with Claude, Anthropic's model, for a conversation on the page, by Anthropic's Messages API at api.anthropic.com: what the conversation shares goes there, with the key of the person's own Anthropic account, kept in the system's keychain.",
   "licence": "MIT",
-  "homepage": "https://docs.anthropic.com/en/api/messages",
+  "homepage": "https://platform.claude.com/docs/en/about-claude/models/overview",
   "environment": "uv",
   "roles": [
     {

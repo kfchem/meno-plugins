@@ -32,3 +32,14 @@ is what the conversation may see (Meno's docs/CONVERSATIONS.md, *The frame
 is its scope*). That edit is the frame working, not one to fix, so the
 plugin keeps `drop_block`: an account Anthropic enforces the check on gets
 the turn answered, not refused.
+
+## How long it waits
+
+Meno waits 3 minutes for a worker's answer, and a worker answers one
+request at a time. So that a service that stalls holds no later request
+behind it, the plugin gives one request 140 seconds in all, from asking to
+the reply's end, and the service 30 seconds of silence (10 to connect);
+past either it says, in words, that the service took too long. A request
+that fails to connect, or that the service is too busy for, is asked again
+once. With a silence at its very end, a request ends inside Meno's wait.
+
