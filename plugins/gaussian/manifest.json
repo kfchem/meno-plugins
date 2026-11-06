@@ -43,7 +43,7 @@
     }
   ],
   "installed": [
-    {"name": "g16", "label": "Gaussian 16", "files": {"macos": "g16", "linux": "g16"}, "path": ["{folder}"], "env": {"g16root": "{parent}", "GAUSS_EXEDIR": "{folder}"}}
+    {"name": "g16", "label": "Gaussian 16", "files": {"macos": "g16", "linux": "g16", "windows": "g16.exe"}, "path": ["{folder}"], "env": {"g16root": "{parent}", "GAUSS_EXEDIR": "{folder}"}}
   ],
   "steps": [
     {

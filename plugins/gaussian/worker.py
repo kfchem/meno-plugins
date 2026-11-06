@@ -14,6 +14,7 @@ line on stdin, one per line back on stdout, as every plugin's:
     {"id": 3, "ok": true, "result": {"text": "..."}}
     {"id": 4, "op": "prepare", "step": "optimise", "entries": [...], "options": {...}, "cores": 4}
     {"id": 4, "ok": true, "result": {"jobs": [{"entries": [0], "program": "g16", "args": [], "stdin": "input.gjf", ...}]}}
+    (on Windows: {"program": "g16", "args": ["input.gjf", "input.log"], "reads": ["input.log"], ...})
     {"id": 5, "op": "collect", "step": "optimise", "entries": [...], "files": {}, "log": "...", "ended": "done"}
     {"id": 5, "ok": true, "result": {"read": [{"kind": "gaussian", "log": true, "name": "water.log",
         "wavefunction": {"kind": "wfx", "file": "wavefunction.wfx", "name": "water.wfx"}}]}}
@@ -34,8 +35,13 @@ it - `g16 <input-file >output-file`: given no job name, Gaussian reads its
 input from standard input and writes its output to standard output, which
 is the job's log, followed by Meno as it runs; the scratch files where it
 runs; its folder `g16root` the one above Gaussian's own and GAUSS_EXEDIR
-Gaussian's own. `collect` reads nothing: it says that the log is
-Gaussian's output, for Meno's readers to read as one opened is - and,
+Gaussian's own. On Windows, Gaussian 16W is given its input file and its
+output file by name, in that order - as its GaussView help has it
+("Specifying How the Gaussian Program is Executed", the Windows program's
+command line) - its output read back from that file after the run, as a
+default name for it is documented nowhere; GAUSS_EXEDIR is its folder, as
+its release notes' "Input Notes" have it. `collect` reads nothing: it says
+that the log (on Windows, that file) is Gaussian's output, for Meno's readers to read as one opened is - and,
 where Gaussian wrote one, that its wavefunction is kept with the molecule,
 for a step that takes one (Multiwfn's NCI) - or, where the job failed,
 why, as the output says, judged as `read` judges it (reader.run_of).
@@ -252,8 +258,9 @@ def gaussian_input(name, molecule, options, sections=(), job_route=None):
 # --- a workflow's steps ---------------------------------------------------------
 
 PROGRAM = "g16"
-# the input file, which Gaussian reads as its standard input
+# the input file, which Gaussian reads as its standard input - on Windows, named on its command line, with its output's
 INPUT = "input.gjf"
+OUTPUT = "input.log"
 # what Gaussian's output is, as Meno's readers know it (their manifests' kinds)
 KIND = "gaussian"
 # the wavefunction a step's job keeps, and what kind of file it is: Meno's own kind of WFX file
@@ -366,19 +373,27 @@ def memory_of(options):
     return max(1, math.ceil(int(number) * MEMORY_MIB[unit]))
 
 
+def windows():
+    """Whether Gaussian runs on Windows here - Gaussian 16W, given its input and output files by name - as the worker runs
+    on the computer its jobs do."""
+    return sys.platform == "win32"
+
+
 def op_prepare(m):
     options = m.get("options") or {}
     memory = memory_of(options)
+    named = windows()
     jobs = []
     for i, entry in enumerate(m.get("entries") or []):
         jobs.append({
             "entries": [i],
             "program": PROGRAM,
-            "args": [],
+            # (on Windows: `g16 input.gjf input.log`, its output in that file - else from standard input to the log)
+            "args": [INPUT, OUTPUT] if named else [],
             "files": [{"name": INPUT, "text": step_input(m.get("step"), entry, options, m.get("cores"))}],
-            "stdin": INPUT,
-            # (a saddle point's step keeps no wavefunction: none written)
-            "reads": [WAVEFUNCTION] if keeps_wavefunction(options) and m.get("step") != SADDLE else [],
+            **({} if named else {"stdin": INPUT}),
+            # (a saddle point's step keeps no wavefunction: none written; on Windows, its output read back from its file)
+            "reads": ([WAVEFUNCTION] if keeps_wavefunction(options) and m.get("step") != SADDLE else []) + ([OUTPUT] if named else []),
             **({"memory": memory} if memory else {}),
         })
     if not jobs:
@@ -415,15 +430,19 @@ def ended_well(output):
 def op_collect(m):
     if m.get("step") not in STEP_JOBS and m.get("step") != SADDLE:
         raise Refused(f"this plugin does no {m.get('step')!r}")
-    output = m.get("log") or ""
+    files = m.get("files") or {}
+    # (its output: the log - on Windows, the file Gaussian was told to write, read back; none where it wrote none)
+    named = windows()
+    output = (files.get(OUTPUT) if named else m.get("log")) or ""
+    where = {"file": OUTPUT} if named else {"log": True}
     if m.get("ended") != "done" or not ended_well(output):
         # (an optimisation that stopped: what it wrote read too, where it wrote anything - the geometry it reached, for a
         #  run again to start from - never as a result)
-        partial = [{"kind": KIND, "log": True, "name": output_name(e)} for e in m.get("entries") or []] if m.get("step") in PARTIAL_STEPS and OPTIMISING in output else []
+        partial = [{"kind": KIND, **where, "name": output_name(e)} for e in m.get("entries") or []] if m.get("step") in PARTIAL_STEPS and OPTIMISING in output else []
         return {"why": why_of(output), **({"partial": partial} if partial else {})}
     # (its wavefunction, where it wrote one: read back by Meno, kept with the molecule)
-    wrote = WAVEFUNCTION in (m.get("files") or {})
-    return {"read": [{"kind": KIND, "log": True, "name": output_name(e), **({"wavefunction": wavefunction_of(e)} if wrote else {})} for e in m.get("entries") or []]}
+    wrote = WAVEFUNCTION in files
+    return {"read": [{"kind": KIND, **where, "name": output_name(e), **({"wavefunction": wavefunction_of(e)} if wrote else {})} for e in m.get("entries") or []]}
 
 
 def wavefunction_of(entry):
