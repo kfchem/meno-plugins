@@ -1,0 +1,4 @@
+[
+  {"id": "wfx", "name": "WFX reader", "why": "Meno reads these files itself now"},
+  {"id": "getting-started", "name": "Getting started", "why": "Meno's first steps are its own now, in Settings, General"}
+]
