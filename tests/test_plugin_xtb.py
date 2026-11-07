@@ -161,6 +161,30 @@ class Prepare(unittest.TestCase):
         self.assertEqual(lines[2].split(), ["H", "0.0000000000", "0.0000000000", "0.0000000000"])
         self.assertEqual(first["reads"], ["xtbopt.log", "xtbopt.xyz"])
 
+    def test_an_optimisation_holds_the_atoms_fixed_meno_asks_it_to_from_1_as_xcontrol_numbers_them(self):
+        fixed = {**ETHYNE, "restraints": [{"kind": "fixed", "atoms": [3, 0]}, {"kind": "fixed", "atoms": [0]}]}
+        [job] = ask("prepare", step="optimise", entries=[fixed], options={**defaults("optimise"), "hold": "fixed"})["jobs"]
+        self.assertEqual(job["args"][-2:], ["--input", "fix.inp"])
+        files = {f["name"]: f["text"] for f in job["files"]}
+        self.assertEqual(files["fix.inp"], "$fix\n   atoms: 1,4\n$end\n$opt\n   engine=lbfgs\n$end\n")
+        # (not asked to - Meno's default - or nothing fixed: as ever, the restraints riding along unheld)
+        for options, entry in [(defaults("optimise"), fixed), ({**defaults("optimise"), "hold": "no"}, fixed), ({**defaults("optimise"), "hold": "fixed"}, ETHYNE)]:
+            [job] = ask("prepare", step="optimise", entries=[entry], options=options)["jobs"]
+            self.assertNotIn("--input", job["args"])
+            self.assertEqual([f["name"] for f in job["files"]], ["input.xyz"])
+        # (another step holds none)
+        [energy] = ask("prepare", step="energy", entries=[fixed], options={"method": "gfn2", "solvent": "none", "hold": "fixed"})["jobs"]
+        self.assertNotIn("--input", energy["args"])
+
+    def test_an_optimisation_asked_to_hold_a_distance_refuses_that_entry_naming_it(self):
+        both = {**ETHYNE, "restraints": [{"kind": "fixed", "atoms": [0]}, {"kind": "distance", "atoms": [1, 2], "value": 1.2, "strength": 500}]}
+        out = ask("prepare", step="optimise", entries=[both, ETHYNE], options={**defaults("optimise"), "hold": "fixed"})
+        self.assertEqual([j["entries"] for j in out["jobs"]], [[1]])
+        self.assertEqual(out["refused"], [{"entry": 0, "why": "xTB: its restraints hold distance, which it holds none of: only atoms fixed.", "kind": "refused"}])
+        wrong = {**ETHYNE, "restraints": [{"kind": "fixed", "atoms": [9]}]}
+        with self.assertRaises(Exception):
+            ask("prepare", step="optimise", entries=[wrong], options={**defaults("optimise"), "hold": "fixed"})
+
     def test_the_method_the_solvent_and_the_kind_of_run(self):
         args = ask("prepare", step="frequencies", entries=[ETHYNE], options={"method": "gfnff", "solvent": "water"})["jobs"][0]["args"]
         self.assertIn("--hess", args)

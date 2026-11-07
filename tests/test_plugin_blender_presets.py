@@ -1,5 +1,5 @@
 """Tests for the Film looks and motions plugin (plugins/blender-presets), run by the Blender plugin
-through the interface `preset` (docs/plugins/blender-presets.md).
+through the interface `preset` (docs/blender-presets.md).
 
     python3 -m unittest tests/test_plugin_blender_presets.py
 

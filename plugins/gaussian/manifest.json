@@ -1,7 +1,7 @@
 {
   "id": "gaussian",
   "name": "Gaussian interface",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Optimises molecules in 3D and works out their energies and vibrations with Gaussian 16 - installed separately, under its own licence, never downloaded by Meno - writes a molecule in 3D as Gaussian 16 input, and reads Gaussian 16's output and formatted checkpoints.",
   "licence": "Apache-2.0",
   "homepage": "https://gaussian.com",
@@ -43,7 +43,7 @@
     }
   ],
   "installed": [
-    {"name": "g16", "label": "Gaussian 16", "files": {"macos": "g16", "linux": "g16"}, "path": ["{folder}"], "env": {"g16root": "{parent}", "GAUSS_EXEDIR": "{folder}"}}
+    {"name": "g16", "label": "Gaussian 16", "files": {"macos": "g16", "linux": "g16", "windows": "g16.exe"}, "path": ["{folder}"], "env": {"g16root": "{parent}", "GAUSS_EXEDIR": "{folder}"}}
   ],
   "steps": [
     {
@@ -86,6 +86,49 @@
         {"id": "keywords", "label": "More keywords for the route section", "type": "text", "default": ""},
         {"id": "memory", "label": "Memory (%Mem, as 8GB; empty leaves it to Gaussian)", "type": "text", "default": ""},
         {"id": "wavefunction", "label": "Keep the wavefunction", "type": "switch", "default": true}
+      ]
+    },
+    {
+      "kinds": ["saddle-point"],
+      "programs": ["g16"],
+      "options": [
+        {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
+        {"id": "basis", "label": "Basis set", "type": "text", "default": "6-31G(d)"},
+        {"id": "dispersion", "label": "Empirical dispersion", "type": "choice", "choices": [
+          {"value": "none", "label": "None"},
+          {"value": "GD2", "label": "Grimme's D2 (GD2)"},
+          {"value": "GD3", "label": "Grimme's D3 (GD3)"},
+          {"value": "GD3BJ", "label": "Grimme's D3 with Becke-Johnson damping (GD3BJ)"}
+        ], "default": "GD3BJ"},
+        {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "PCM", "label": "PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
+        {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["PCM", "SMD"]}, "choices": [
+          {"value": "Water", "label": "Water"},
+          {"value": "Acetonitrile", "label": "Acetonitrile"},
+          {"value": "Acetone", "label": "Acetone"},
+          {"value": "Benzene", "label": "Benzene"},
+          {"value": "Chloroform", "label": "Chloroform"},
+          {"value": "Dichloromethane", "label": "Dichloromethane"},
+          {"value": "n,n-DiMethylFormamide", "label": "DMF"},
+          {"value": "DiMethylSulfoxide", "label": "DMSO"},
+          {"value": "DiethylEther", "label": "Diethyl ether"},
+          {"value": "Ethanol", "label": "Ethanol"},
+          {"value": "EthylEthanoate", "label": "Ethyl acetate"},
+          {"value": "n-Hexane", "label": "Hexane"},
+          {"value": "Methanol", "label": "Methanol"},
+          {"value": "TetraHydroFuran", "label": "THF"},
+          {"value": "Toluene", "label": "Toluene"},
+          {"value": "1,4-Dioxane", "label": "1,4-Dioxane"},
+          {"value": "CarbonTetraChloride", "label": "Carbon tetrachloride"},
+          {"value": "Pyridine", "label": "Pyridine"},
+          {"value": "NitroMethane", "label": "Nitromethane"},
+          {"value": "CycloHexane", "label": "Cyclohexane"},
+          {"value": "n-Octanol", "label": "1-Octanol"},
+          {"value": "2-Propanol", "label": "2-Propanol"}
+        ], "default": "Water"},
+        {"id": "keywords", "label": "More keywords for the route section", "type": "text", "default": ""},
+        {"id": "memory", "label": "Memory (%Mem, as 8GB; empty leaves it to Gaussian)", "type": "text", "default": ""},
+        {"id": "hessian", "label": "First Hessian", "type": "choice", "choices": [{"value": "computed", "label": "Computed at the start (CalcFC)"}, {"value": "model", "label": "Gaussian's estimate"}], "default": "computed"},
+        {"id": "tight", "label": "Tight convergence (Opt=Tight)", "type": "switch", "default": false}
       ]
     }
   ]

@@ -22,7 +22,7 @@ job's settings and its scripts, render.py and the interface's side of it
 (presets.py), which Blender runs in its own Python - beside the scene Meno
 writes into the job's folder (each entry's `scene`), and the files of a
 preset plugin's look, studio or motion chosen (the entry's `presets`), which
-Meno puts there (docs/plugins/blender-presets.md) - and says the command
+Meno puts there (docs/blender-presets.md) - and says the command
 Meno runs, apart from Meno, in the job's folder; `collect` says what the job made - a picture, a PNG, or a film,
 an MP4 - or, where it failed, why. One job for each entry.
 
@@ -42,7 +42,7 @@ import os
 import re
 import sys
 
-VERSION = "0.7.4"
+VERSION = "0.7.5"
 PROGRAM = "blender"
 SCRIPT = "render.py"
 PRESETS_SCRIPT = "presets.py"
@@ -61,7 +61,7 @@ QUALITIES = {"high", "medium", "lossless"}
 SHADINGS = {"lit", "toon"}
 OUTLINES = {"none", "thin", "outer", "mixed"}
 OUTLINE_COLOURS = {"black", "white", "grey"}
-# a preset's choices (docs/plugins/blender-presets.md): the interface it is handed under, the kinds it may be chosen of, a plugin's
+# a preset's choices (docs/blender-presets.md): the interface it is handed under, the kinds it may be chosen of, a plugin's
 # id and a file's path inside its folder - Meno puts the files there; this says only what render.py is to run of them
 INTERFACE = "preset"
 KINDS = ("look", "studio", "motion")

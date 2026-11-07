@@ -1,10 +1,10 @@
 {
   "id": "blender-presets",
   "name": "Film looks and motions",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Looks, studios and film motions made with Blender's own materials, light and keys, for the Blender plugin to render.",
   "licence": "GPL-3.0-or-later",
-  "homepage": "https://github.com/kfchem/meno/blob/main/docs/plugins/blender-presets.md",
+  "homepage": "https://github.com/kfchem/meno-plugins/blob/main/docs/blender-presets.md",
   "depends": [
     {
       "plugin": "blender",

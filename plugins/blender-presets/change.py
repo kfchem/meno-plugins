@@ -12,7 +12,7 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
 # Public License, in this folder's LICENSE, for more details.
-"""A change of molecules (docs/plugins/blender-presets.md, *A motion*): a film in pieces, one for each molecule that becomes
+"""A change of molecules (docs/blender-presets.md, *A motion*): a film in pieces, one for each molecule that becomes
 the next - A, the piece's molecule, staged by the kit (motionkit.py), into B, the next. Executed after the kit, in its
 namespace, by motion_kit.py `change`, before the change's own `keyed()`.
 

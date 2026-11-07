@@ -58,6 +58,8 @@ PATH = "xtbopt.log"
 LAST = "xtbopt.xyz"
 # the frequencies in Gaussian's form, which xtb writes for MOLDEN ("Calculation of Vibrational Frequencies")
 G98 = "g98.out"
+# (an optimisation's atoms held where they stand, where Meno asks it to: xcontrol(7), `$fix`, read with --input)
+FIX = "fix.inp"
 
 METHODS = {
     "gfn2": (["--gfn", "2"], "GFN2-xTB"),
@@ -162,6 +164,29 @@ def args_for(step, options, entry, cores):
     return args
 
 
+def held(step, options, entry):
+    """The atoms an optimisation holds where they stand, from 1 as xcontrol(7) numbers them - none unless Meno asks it to
+    (`hold`: "fixed") and the entry's restraints fix some. A restraint of another kind it is asked to hold with them - a
+    distance, a torsion - refused: this plugin holds atoms fixed alone, and never drops one unsaid."""
+    if step != "optimise" or options.get("hold", "no") != "fixed":
+        return []
+    restraints = entry.get("restraints") or []
+    other = sorted({r.get("kind") for r in restraints if r.get("kind") != "fixed"})
+    if other:
+        raise Refused(f"its restraints hold {' and '.join(str(k) for k in other)}, which it holds none of: only atoms fixed")
+    n = len(entry.get("atoms") or [])
+    atoms = sorted({a for r in restraints for a in r.get("atoms") or []})
+    if any(not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < n for a in atoms):
+        raise Refused("an atom it fixes is not one of its atoms")
+    return [a + 1 for a in atoms]
+
+
+def fix_input(atoms):
+    """xcontrol(7)'s `$fix` group: the atoms fixed exactly - their gradient set to zero as it optimises - with its `$opt`
+    group's `engine` asked to be L-BFGS (`engine=lbfgs`), the optimiser this plugin holds atoms fixed with."""
+    return f"$fix\n   atoms: {','.join(str(a) for a in atoms)}\n$end\n$opt\n   engine=lbfgs\n$end\n"
+
+
 def op_prepare(m):
     """A job for each entry. One this plugin will not run - an isotope's
     frequencies, a charge that is no whole number - is refused alone, saying
@@ -182,6 +207,7 @@ def op_prepare(m):
     for i, entry in enumerate(entries):
         try:
             args = args_for(step, options, entry, m.get("cores"))
+            fixed = held(step, options, entry) if not lone(entry) else []
         except Refused as e:
             # (said as a refusal of the whole step is: "xTB: ...")
             refused.append({"entry": i, "why": f"xTB: {e}.", "kind": "refused"})
@@ -191,8 +217,8 @@ def op_prepare(m):
         jobs.append({
             "entries": [i],
             "program": PROGRAM,
-            "args": args,
-            "files": [{"name": INPUT, "text": xyz_of(entry)}],
+            "args": args + (["--input", FIX] if fixed else []),
+            "files": [{"name": INPUT, "text": xyz_of(entry)}] + ([{"name": FIX, "text": fix_input(fixed)}] if fixed else []),
             "reads": reads,
         })
     if not jobs:

@@ -188,6 +188,24 @@ def mass_of(el, atom):
 LOW_VIBRATIONS = {"none": "", "rrho": "%freq QuasiRRHO false end"}
 
 
+def held(step, options, entry):
+    """The atoms an optimisation - to a minimum, or to a saddle point - holds where they stand, from 0 as ORCA numbers
+    them: none unless Meno asks it to (`hold`: "fixed") and the entry's restraints fix some. A restraint of another kind
+    it is asked to hold with them - a distance, a torsion - refused: this plugin holds atoms fixed alone, and never drops
+    one unsaid."""
+    if step not in ("optimise", "saddle-point") or options.get("hold", "no") != "fixed":
+        return []
+    restraints = entry.get("restraints") or []
+    other = sorted({r.get("kind") for r in restraints if r.get("kind") != "fixed"})
+    if other:
+        raise Refused(f"its restraints hold {' and '.join(str(k) for k in other)}, which it holds none of: only atoms fixed")
+    n = len(entry.get("atoms") or [])
+    atoms = sorted({a for r in restraints for a in r.get("atoms") or []})
+    if any(not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < n for a in atoms):
+        raise Refused("an atom it fixes is not one of its atoms")
+    return atoms
+
+
 def orca_input(step, entry, options, cores):
     """An entry's input, as ORCA's manual lays it out."""
     run = RUNS.get(step)
@@ -237,7 +255,13 @@ def orca_input(step, entry, options, cores):
     steps = whole(options.get("maxiter", 0), "The steps each way", 0) if step == "reaction-path" else 0
     if steps:
         lines.append(f"%irc maxiter {steps} end")
-    if hessian:
+    # (the atoms it holds where they stand, where Meno asks it to: Cartesian constraints in the %geom block (4.5.13), from
+    #  0 as ORCA numbers atoms - one block, beside a saddle point's first Hessian)
+    fixed = held(step, options, entry)
+    if fixed:
+        constraints = "Constraints " + " ".join(f"{{C {a} C}}" for a in fixed) + " end"
+        lines.append(f"%geom {'Calc_Hess true ' if hessian else ''}{constraints} end")
+    elif hessian:
         lines.append(hessian)
     lines.append(f"* xyz {charge} {multiplicity}")
     for el, a in zip(elements_of(entry), entry["atoms"]):
@@ -441,7 +465,17 @@ def op_prepare(m):
         if not jobs:
             raise Refused("nothing came in")
         return {"jobs": [{**j, "cores": 1} for j in jobs] if alone else jobs, **({"note": NO_LAUNCHER_SAID} if alone else {})}
+    # (an entry whose restraints ask what it does not hold refused alone, saying why - the others run; every one, and the
+    #  step is refused as a whole)
+    refused = []
+    first = None
     for i, entry in enumerate(m.get("entries") or []):
+        try:
+            held(step, options, entry)
+        except Refused as e:
+            refused.append({"entry": i, "why": f"ORCA: {e}.", "kind": "refused"})
+            first = first or e
+            continue
         jobs.append({
             "entries": [i],
             "program": PROGRAM,
@@ -454,10 +488,10 @@ def op_prepare(m):
             **({"needs": ["xtb"]} if needs_xtb(options) else {}),
         })
     if not jobs:
-        raise Refused("nothing came in")
+        raise first or Refused("nothing came in")
     said = NUMERICAL_SAID if numerical(step, options) else NUMERICAL_HESSIAN_SAID if numerical_hessian(step, options) else None
     note = "; ".join(n for n in (said, NO_LAUNCHER_SAID if alone else None) if n)
-    return {"jobs": [{**j, "cores": 1} for j in jobs] if alone else jobs, **({"note": note} if note else {})}
+    return {"jobs": [{**j, "cores": 1} for j in jobs] if alone else jobs, **({"note": note} if note else {}), **({"refused": refused} if refused else {})}
 
 
 def output_name(entry):

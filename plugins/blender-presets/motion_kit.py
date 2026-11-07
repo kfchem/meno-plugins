@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Meno contributors. Under the GPL, in this plugin's LICENSE.
-"""How a motion's module is keyed with the kit (motionkit.py): docs/plugins/blender-presets.md, *A motion*."""
+"""How a motion's module is keyed with the kit (motionkit.py): docs/blender-presets.md, *A motion*."""
 import os
 
 

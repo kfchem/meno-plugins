@@ -81,17 +81,21 @@ jobs:
             sleep 1; issued=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           done
           [ -z "$last" ] || [ "$issued" \> "$last" ] || { echo "the clock is not past the catalogue published ($last)"; exit 1; }
-          python3 -I tools/build_catalogue.py latest "https://github.com/${GITHUB_REPOSITORY}/releases/download" "$issued" > catalogue.json
+          # (two lists, one issued: catalogue.json, what the oldest released Meno still in use reads whole; catalogue-2.json,
+          #  every entry, for Meno 0.1.23 and later - tools/readers.json)
+          python3 -I tools/build_catalogue.py latest "https://github.com/${GITHUB_REPOSITORY}/releases/download" "$issued" --full catalogue-2.json > catalogue.json
           sudo apt-get install -y minisign
           # (a key made on Windows, its secret pasted with CRLF line ends: the carriage returns taken out of the key and
           #  the password alike, which minisign would otherwise read as part of them)
           printf '%s' "$KEY" | tr -d '\r' > key.txt
-          printf '%s\n' "$(printf '%s' "$PASSWORD" | tr -d '\r')" | minisign -S -s key.txt -m catalogue.json -x catalogue.json.minisig
+          for list in catalogue.json catalogue-2.json; do
+            printf '%s\n' "$(printf '%s' "$PASSWORD" | tr -d '\r')" | minisign -S -s key.txt -m "$list" -x "$list.minisig"
+          done
           rm key.txt
           # (the signature checked against the public key Meno carries, tools/catalogue.pub, before anything is uploaded:
           #  a wrong secret fails here, never publishing a catalogue Meno would refuse)
-          minisign -V -p tools/catalogue.pub -m catalogue.json -x catalogue.json.minisig
+          for list in catalogue.json catalogue-2.json; do minisign -V -p tools/catalogue.pub -m "$list" -x "$list.minisig"; done
           gh release view catalogue >/dev/null 2>&1 || gh release create catalogue --title catalogue --notes "The catalogue Meno reads."
-          gh release upload catalogue catalogue.json catalogue.json.minisig --clobber
+          gh release upload catalogue catalogue.json catalogue.json.minisig catalogue-2.json catalogue-2.json.minisig --clobber
           # (the release Meno's fixed address takes as latest: releases/latest/download/catalogue.json)
           gh release edit catalogue --latest

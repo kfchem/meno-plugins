@@ -138,7 +138,7 @@ class Prepare(unittest.TestCase):
 
 
 class Preset(unittest.TestCase):
-    """A preset plugin's look, studio or motion (docs/plugins/blender-presets.md): passed to render.py as Meno hands it, its
+    """A preset plugin's look, studio or motion (docs/blender-presets.md): passed to render.py as Meno hands it, its
     shape checked; the renderer declares no look or motion of its own."""
 
     def entry(self, **preset):
@@ -684,7 +684,7 @@ class Thing:
 
 
 class PresetMolecules(unittest.TestCase):
-    """The molecules a preset is handed (docs/plugins/blender-presets.md, *ctx*): Meno's, found by the tags it wrote."""
+    """The molecules a preset is handed (docs/blender-presets.md, *ctx*): Meno's, found by the tags it wrote."""
 
     def scene(self):
         a = Thing("Ethene", {"molecule": 1, "bonds": [{"a": 0, "b": 1, "order": 2}, {"a": 0, "b": 2, "order": 1}]})
