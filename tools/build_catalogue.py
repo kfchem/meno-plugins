@@ -6,9 +6,13 @@ the same), the plugin it brings presets to (`presetsFor`: the plugin its presets
 archive (url, SHA-256, size) and its manifest's SHA-256 - and when it was issued, which is what Meno orders catalogues by:
 UTC, to the second, as `2026-11-05T13:04:09Z` and in no other form. Besides, the plugins no longer offered (`retired`, from
 tools/retired.json: each one's id, name and why, in words), so that Meno can say why one set up before is not got again.
-Usage: python3 -I tools/build_catalogue.py <archives folder> <base url> [<issued>] > catalogue.json, the folder
-holding each plugin's latest `<id>-<version>.tar.gz` and nothing else; `issued` the time given (the release job's, later
-than the catalogue published), or now."""
+Usage: python3 -I tools/build_catalogue.py <archives folder> <base url> [<issued>] [--full <path>] > catalogue.json, the
+folder holding each plugin's latest `<id>-<version>.tar.gz` and nothing else; `issued` the time given (the release job's,
+later than the catalogue published), or now.
+
+Two lists, one issued (tools/readers.json): catalogue.json, on the standard output, holds only the entries the oldest
+released Meno still in use reads whole - one it does not would refuse it the whole list - and `--full` writes every entry
+to its own file (catalogue-2.json), the list Meno 0.1.23 and later read. Both carry `retired`."""
 
 import datetime
 import hashlib
@@ -20,9 +24,15 @@ import re
 import sys
 import tarfile
 
-folder, base = pathlib.Path(sys.argv[1]), sys.argv[2].rstrip("/")
+args = sys.argv[1:]
+full = None
+if "--full" in args:
+    i = args.index("--full")
+    full = pathlib.Path(args[i + 1])
+    del args[i : i + 2]
+folder, base = pathlib.Path(args[0]), args[1].rstrip("/")
 ISSUED = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
-issued = sys.argv[3] if len(sys.argv) > 3 else datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+issued = args[2] if len(args) > 2 else datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 if not ISSUED.fullmatch(issued):
     sys.exit(f"issued must be UTC to the second, as 2026-11-05T13:04:09Z: {issued}")
 datetime.datetime.strptime(issued, "%Y-%m-%dT%H:%M:%SZ")
@@ -105,4 +115,20 @@ if len({r["id"] for r in retired}) != len(retired):
 offered = {e["id"] for e in entries} & {r["id"] for r in retired}
 if offered:
     sys.exit(f"retired.json: offered and retired at once: {sorted(offered)}")
-print(json.dumps({"schema": 1, "issued": issued, "plugins": entries, **({"retired": retired} if retired else {})}, indent=2, ensure_ascii=False))
+# (the entries the oldest released Meno still in use reads whole: each role, system and kind it knows - the rest of an entry
+#  written here in the form it takes)
+READERS = json.loads((pathlib.Path(__file__).resolve().parent / "readers.json").read_text(encoding="utf-8"))
+KIND = re.compile(READERS["kind"])
+
+
+def read_by_oldest(e):
+    return (set(e["roles"]) <= set(READERS["roles"]) and set(e["systems"]) <= set(READERS["systems"])
+            and all(KIND.fullmatch(k) for k in e["kinds"] + e["reads"]))
+
+
+oldest = [e for e in entries if read_by_oldest(e)]
+# (both lists say what is retired: what an old Meno set up before is no less retired for it)
+gone = {"retired": retired} if retired else {}
+if full is not None:
+    full.write_text(json.dumps({"schema": 1, "issued": issued, "plugins": entries, **gone}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(json.dumps({"schema": 1, "issued": issued, "plugins": oldest, **gone}, indent=2, ensure_ascii=False))
