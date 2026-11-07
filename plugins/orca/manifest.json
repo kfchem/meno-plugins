@@ -1,7 +1,7 @@
 {
   "id": "orca",
   "name": "ORCA interface",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Optimises molecules in 3D, and works out their energies and vibrations, with ORCA - installed separately, under its own licence, and never downloaded by Meno.",
   "licence": "Apache-2.0",
   "homepage": "https://www.faccts.de/orca/",
@@ -22,6 +22,7 @@
     {
       "kinds": ["optimise", "energy"],
       "programs": ["orca"],
+      "restraints": ["fixed"],
       "options": [
         {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
         {"id": "basis", "label": "Basis set", "type": "text", "default": "def2-SVP"},
@@ -135,6 +136,7 @@
     {
       "kinds": ["saddle-point"],
       "programs": ["orca"],
+      "restraints": ["fixed"],
       "options": [
         {"id": "method", "label": "Method", "type": "text", "default": ""},
         {"id": "basis", "label": "Basis set", "type": "text", "default": ""},
