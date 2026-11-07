@@ -4,7 +4,7 @@
 # Under the GNU General Public License, version 3 or later: see this plugin's LICENSE.
 """Rim-light reveal: out of darkness a rim of light traces the molecule, then the key light comes up; on white, a pale ghost and its shadow develop into colour behind a fine cool line.
 
-Keyed with the kit (motionkit.py) on Meno's molecule: docs/plugins/blender-presets.md, *A motion*.
+Keyed with the kit (motionkit.py) on Meno's molecule: docs/blender-presets.md, *A motion*.
 """
 import motion_kit as kit
 

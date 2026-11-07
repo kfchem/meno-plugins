@@ -5,14 +5,19 @@
 #
 # REINVENT 4 installed from its repository at the commit of its release 4.8,
 # pinned by the archive's hash: it is published on no package index. Resolved
-# as its own installer resolves it on a Mac (pip, which leaves out the
+# as its own installer resolves it, with pip (which leaves out the
 # CUDA index its pyproject names for torch: --no-sources), from the package
 # index's torch.
 #
-# Locked for macOS on Apple silicon, 14 or later - torch's wheels are built for
-# no earlier (manifest.json, `systems`) - with hashes:
-#   MACOSX_DEPLOYMENT_TARGET=14.0 uv pip compile --no-sources --python-version 3.12 \
-#     --python-platform aarch64-apple-darwin --generate-hashes requirements.in -o requirements.lock
+# Locked for macOS on Apple silicon, 14 or later - torch's wheels are built
+# for no earlier - and Windows on x64 (manifest.json,
+# `systems`), with hashes; one lock for both, each system's packages by its
+# markers. Torch is the package index's: on Windows, its build for the CPU.
+# Torch's GPU libraries for Linux are left out (--no-emit-package each;
+# installed with --no-deps). Remade from the lock as it was, so that the
+# packages macOS had keep their versions:
+#   uv pip compile --universal --no-sources --python-version 3.12 --generate-hashes \
+#     --no-emit-package <each of torch's Linux GPU libraries> requirements.in -o requirements.lock
 reinvent @ https://github.com/MolecularAI/REINVENT4/archive/80a8d21aefd9c0d3ec806377522effb30cfca12a.tar.gz
 # imported by REINVENT 4 (reinvent/runmodes/utils/plot.py), and added for it
 scipy

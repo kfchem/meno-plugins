@@ -2,20 +2,23 @@
 licence, the plugin contract it is written to - no fact of its environment, which is known once it is downloaded, the systems it runs on, what it does (roles, kinds of step, kinds it
 reads), the kinds of file it brings that are told by their marks (`fileKinds`: so that Meno can say, of a file nothing
 added reads, which plugin would read it), the tables of atoms its program prints as papers quote them (`quotedTables`, for
-the same), and its archive (url, SHA-256, size) and its manifest's SHA-256 - and when it was issued, which is what
-Meno orders catalogues by: UTC, to the second, as `2026-11-05T13:04:09Z` and in no other form.
+the same), the plugin it brings presets to (`presetsFor`: the plugin its presets' interface is used through), and its
+archive (url, SHA-256, size) and its manifest's SHA-256 - and when it was issued, which is what Meno orders catalogues by:
+UTC, to the second, as `2026-11-05T13:04:09Z` and in no other form. Besides, the plugins no longer offered (`retired`, from
+tools/retired.json: each one's id, name and why, in words), so that Meno can say why one set up before is not got again.
 Usage: python3 -I tools/build_catalogue.py <archives folder> <base url> [<issued>] [--full <path>] > catalogue.json, the
 folder holding each plugin's latest `<id>-<version>.tar.gz` and nothing else; `issued` the time given (the release job's,
 later than the catalogue published), or now.
 
 Two lists, one issued (tools/readers.json): catalogue.json, on the standard output, holds only the entries the oldest
 released Meno still in use reads whole - one it does not would refuse it the whole list - and `--full` writes every entry
-to its own file (catalogue-2.json), the list Meno 0.1.23 and later read."""
+to its own file (catalogue-2.json), the list Meno 0.1.23 and later read. Both carry `retired`."""
 
 import datetime
 import hashlib
 import io
 import json
+import os
 import pathlib
 import re
 import sys
@@ -88,10 +91,30 @@ for archive in sorted(folder.glob("*.tar.gz")):
             tables.append({"id": t["id"], "headings": [x.strip() for x in t["headings"]], "heads": [x.strip() for x in t.get("heads", [])], "columns": t["columns"]})
     if tables:
         entry["quotedTables"] = tables
+    # (the plugin it brings presets to: the one of its `depends` whose interfaces hold the presets' interface - one, or none said)
+    presets = m.get("presets")
+    if isinstance(presets, dict):
+        through = [d["plugin"] for d in m.get("depends", []) if any(i.get("id") == presets.get("interface") for i in d.get("interfaces", []))]
+        if len(through) != 1:
+            sys.exit(f"{archive.name}: its presets' interface is used through {len(through)} plugins, not one")
+        entry["presetsFor"] = through[0]
     for extra in ("cite", "terms"):
         if m.get(extra):
             entry[extra] = m[extra]
     entries.append(entry)
+# (the plugins no longer offered: each by its id, its name and why, in words - none of them also on offer)
+# (another file in its place where CATALOGUE_RETIRED names one: the tests')
+RETIRED = pathlib.Path(os.environ.get("CATALOGUE_RETIRED") or pathlib.Path(__file__).resolve().parent / "retired.json")
+retired = json.loads(RETIRED.read_text(encoding="utf-8")) if RETIRED.is_file() else []
+ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+for r in retired:
+    if set(r) != {"id", "name", "why"} or not ID.fullmatch(str(r["id"])) or not all(isinstance(r[k], str) and 1 <= len(r[k].strip()) <= most for k, most in (("name", 60), ("why", 160))):
+        sys.exit(f"retired.json: not an id, a name and why: {r}")
+if len({r["id"] for r in retired}) != len(retired):
+    sys.exit("retired.json: an id twice")
+offered = {e["id"] for e in entries} & {r["id"] for r in retired}
+if offered:
+    sys.exit(f"retired.json: offered and retired at once: {sorted(offered)}")
 # (the entries the oldest released Meno still in use reads whole: each role, system and kind it knows - the rest of an entry
 #  written here in the form it takes)
 READERS = json.loads((pathlib.Path(__file__).resolve().parent / "readers.json").read_text(encoding="utf-8"))
@@ -104,6 +127,8 @@ def read_by_oldest(e):
 
 
 oldest = [e for e in entries if read_by_oldest(e)]
+# (both lists say what is retired: what an old Meno set up before is no less retired for it)
+gone = {"retired": retired} if retired else {}
 if full is not None:
-    full.write_text(json.dumps({"schema": 1, "issued": issued, "plugins": entries}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-print(json.dumps({"schema": 1, "issued": issued, "plugins": oldest}, indent=2, ensure_ascii=False))
+    full.write_text(json.dumps({"schema": 1, "issued": issued, "plugins": entries, **gone}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(json.dumps({"schema": 1, "issued": issued, "plugins": oldest, **gone}, indent=2, ensure_ascii=False))

@@ -4,7 +4,7 @@
 # Under the GNU General Public License, version 3 or later: see this plugin's LICENSE.
 """Pulse: a wave of energy runs out from the nitrogens (else the middle) along the bonds; on white, a cobalt wave that throws a pool of blue light onto the paper.
 
-Keyed with the kit (motionkit.py) on Meno's molecule: docs/plugins/blender-presets.md, *A motion*.
+Keyed with the kit (motionkit.py) on Meno's molecule: docs/blender-presets.md, *A motion*.
 """
 import motion_kit as kit
 
