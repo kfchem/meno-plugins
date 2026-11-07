@@ -498,6 +498,19 @@ class HowManyTried(unittest.TestCase):
         self.assertIsNone(self.worker.options_of({"options": {"count": 12}})["count"])
         self.assertIsNone(self.worker.options_of({})["count"])
 
+    def test_gives_another_set_of_tries_for_each_draw_and_the_same_for_the_same(self):
+        seed = self.worker.options_of({"count": 5})["seed"]
+        self.assertEqual(self.worker.options_of({"count": 5, "draw": 0})["seed"], seed)
+        self.assertEqual(self.worker.options_of({"count": 5, "draw": 2})["seed"], (seed + 2 * self.worker.DRAW_STRIDE) % 2**31)
+        self.assertGreater(self.worker.DRAW_STRIDE, self.worker.MOST_CONFORMERS)
+        mb = self.worker.op_from_smiles({"smiles": "CCCCO"})["molblock"]
+        frames = lambda draw: self.worker.op_conformers({"molblock": mb, "count": 5, "draw": draw})["isomers"][0]["frames"]
+        self.assertEqual(frames(1), frames(1))
+        self.assertNotEqual(frames(0), frames(1))
+        for bad, said in ((-1, "from 0 to"), (1.5, "a whole number"), ("1", "a whole number"), (True, "a whole number")):
+            with self.assertRaisesRegex(ValueError, f"The draw asked for is to be {said}"):
+                self.worker.options_of({"count": 5, "draw": bad})
+
     def test_makes_none_where_it_is_sent_no_number(self):
         with self.assertRaisesRegex(ValueError, "How many conformers to try was not given"):
             self.worker.op_conformers({**held(self.worker.op_from_smiles({"smiles": "CCO"})["molblock"])})
@@ -507,6 +520,7 @@ class HowManyTried(unittest.TestCase):
         manifest = json.loads((WORKER.parent / "manifest.json").read_text(encoding="utf-8"))
         [role] = [r for r in manifest["roles"] if r.get("role") == "conformers"]
         self.assertIs(role["tries"], True)
+        self.assertIs(role["draws"], True)
         self.assertFalse({"sought", "count"} & {o["id"] for o in role["options"]})
 
     def test_a_workflows_search_tries_the_number_sent_with_each_molecule(self):
