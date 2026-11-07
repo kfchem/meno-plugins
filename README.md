@@ -25,6 +25,9 @@ A plugin is released in three steps:
    - `catalogue-2.json`: every entry, the list Meno 0.1.23 and later read. One naming what a Meno does not know is
      listed there as for a newer Meno.
 
+   Both say which plugins are no longer offered (`retired`, from `tools/retired.json`), and each entry of a preset
+   plugin which plugin it brings presets to (`presetsFor`).
+
 A released Meno cannot be changed, so nothing it cannot read may reach it:
 - CI holds `catalogue.json`, and each manifest of a contract a released Meno speaks, to the reading of each Meno in
   `tools/released.txt`, from its own tag.

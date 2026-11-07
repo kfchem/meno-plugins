@@ -4,6 +4,7 @@ it the whole list - and catalogue-2.json, every entry. Made-up archives. Python 
 
 import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -28,14 +29,21 @@ def plugin(id: str, **more) -> dict:
 
 
 class Lists(unittest.TestCase):
-    def build(self, manifests: list) -> tuple:
+    def build(self, manifests: list, retired: list | None = None) -> tuple:
         with tempfile.TemporaryDirectory() as tmp:
             folder = pathlib.Path(tmp)
             for m in manifests:
                 archive_of(folder, m)
             full = folder / "catalogue-2.json"
+            # (the plugins no longer offered, made up here where given: tools/retired.json else)
+            env = None
+            if retired is not None:
+                said = folder.parent / f"{folder.name}-retired.json"
+                said.write_text(json.dumps(retired), encoding="utf-8")
+                self.addCleanup(said.unlink)
+                env = {**os.environ, "CATALOGUE_RETIRED": str(said)}
             done = subprocess.run([sys.executable, "-I", str(ROOT / "tools/build_catalogue.py"), str(folder), "https://example.org/releases", "2026-11-06T00:00:00Z", "--full", str(full)],
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, env=env)
             self.assertEqual(done.returncode, 0, done.stderr)
             return json.loads(done.stdout), json.loads(full.read_text(encoding="utf-8"))
 
@@ -54,6 +62,14 @@ class Lists(unittest.TestCase):
         self.assertEqual([e["id"] for e in full["plugins"]], ["known", "mixedroles", "newkind", "newread", "newrole", "newsystem"])
         self.assertEqual([e["id"] for e in oldest["plugins"]], ["known"])
         self.assertEqual((oldest["issued"], oldest["schema"]), (full["issued"], full["schema"]))
+
+    def test_both_lists_say_what_is_retired_and_neither_does_where_nothing_is(self):
+        gone = [{"id": "old-one", "name": "Old one", "why": "Its work is done by another plugin now."}]
+        oldest, full = self.build([plugin("known", roles=[{"role": READERS["roles"][0]}])], retired=gone)
+        self.assertEqual((oldest["retired"], full["retired"]), (gone, gone))
+        oldest, full = self.build([plugin("known", roles=[{"role": READERS["roles"][0]}])], retired=[])
+        self.assertNotIn("retired", oldest)
+        self.assertNotIn("retired", full)
 
     def test_the_vocabulary_names_the_oldest_released_meno_still_in_use(self):
         tags = [l.strip() for l in (ROOT / "tools/released.txt").read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")] if (ROOT / "tools/released.txt").is_file() else [READERS["meno"]]
