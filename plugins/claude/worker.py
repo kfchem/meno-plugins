@@ -52,8 +52,8 @@ BASE_URL = "https://api.anthropic.com"
 FOREIGN = "ANTHROPIC_"
 
 #: How long one request may take, in all, in seconds - from asking to the reply's end: under Meno's own wait for an
-#: answer (3 minutes), a stalled read taken into account, so that a stalled service holds no later request behind it.
-DEADLINE = 140.0
+#: answer (10 minutes), a stalled read taken into account, so that a stalled service holds no later request behind it.
+DEADLINE = 560.0
 #: How long the service may be silent, in seconds, before the read is given up.
 SILENT = 30.0
 
@@ -62,10 +62,10 @@ MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
 MODEL = "claude-opus-5-5"
 #: How hard it thinks: the service's levels, and the default.
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
-EFFORT = "high"
+EFFORT = "medium"
 #: How long one reply may be, in tokens: the default, and the most.
 REPLY_TOKENS = 16000
-MOST_REPLY_TOKENS = 64000
+MOST_REPLY_TOKENS = 16000
 
 #: The service's betas this asks for: a thinking block whose conversation was edited since (Meno withholds a tool's
 #: answer once what it gave leaves the frame) is dropped, not refused; and, where the service declines, another of its

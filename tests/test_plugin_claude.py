@@ -128,7 +128,7 @@ class Converse(unittest.TestCase):
         self.assertEqual(str(request.url), "https://api.anthropic.com/v1/messages?beta=true")
         body = service.body()
         self.assertEqual(body["system"], "You are helping a chemist inside Meno.")
-        self.assertEqual((body["model"], body["max_tokens"], body["output_config"]), ("claude-opus-5-5", 16000, {"effort": "high"}))
+        self.assertEqual((body["model"], body["max_tokens"], body["output_config"]), ("claude-opus-5-5", 16000, {"effort": "medium"}))
         self.assertEqual(body["thinking"], {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}})
         self.assertEqual(body["fallbacks"], "default")
         self.assertIn("thinking-binding-controls-2026-08-01", request.headers["anthropic-beta"])
@@ -187,6 +187,12 @@ class Converse(unittest.TestCase):
         self.assertEqual(got["result"]["text"], words)
         self.assertNotIn("calls", got["result"])
 
+    def test_the_defaults_are_the_manifests_own(self):
+        manifest = json.loads((ROOT / "plugins/claude/manifest.json").read_text())
+        options = {o["id"]: o for o in manifest["roles"][0]["options"]}
+        self.assertEqual((options["model"]["default"], options["effort"]["default"], options["reply-tokens"]["default"], options["reply-tokens"]["max"]), (self.worker.MODEL, self.worker.EFFORT, self.worker.REPLY_TOKENS, self.worker.MOST_REPLY_TOKENS))
+        self.assertEqual((self.worker.MODEL, self.worker.EFFORT, self.worker.MOST_REPLY_TOKENS), ("claude-opus-5-5", "medium", 16000))
+
     def test_options_are_the_manifests_and_one_outside_them_refused_never_run_as_another(self):
         service = Service(message([{"type": "text", "text": "ok"}], model="claude-haiku-5-5"))
         got = self.worker.answer(json.dumps(asked(options={"model": "claude-haiku-5-5", "effort": "low", "reply-tokens": 4000})), service.make(self.worker))
@@ -196,12 +202,12 @@ class Converse(unittest.TestCase):
         # (Haiku has no fallback: none asked)
         self.assertNotIn("fallbacks", body)
         self.assertNotIn("server-side-fallback", service.asked[0].headers["anthropic-beta"])
-        # (a reply's length from 1024 to 64000, each end taken)
-        for tokens in (1024, 64000):
+        # (a reply's length from 1024 to 16000, each end taken)
+        for tokens in (1024, 16000):
             service = Service()
             self.assertTrue(self.worker.answer(json.dumps(asked(options={"reply-tokens": tokens})), service.make(self.worker))["ok"], tokens)
             self.assertEqual(service.body()["max_tokens"], tokens)
-        for bad in ({"model": "gpt"}, {"effort": "huge"}, {"reply-tokens": 10}, {"reply-tokens": 1023}, {"reply-tokens": 64001}, {"reply-tokens": True}):
+        for bad in ({"model": "gpt"}, {"effort": "huge"}, {"reply-tokens": 10}, {"reply-tokens": 1023}, {"reply-tokens": 16001}, {"reply-tokens": True}):
             service = Service()
             got = self.worker.answer(json.dumps(asked(options=bad)), service.make(self.worker))
             self.assertFalse(got["ok"], bad)
@@ -252,9 +258,9 @@ class Converse(unittest.TestCase):
         self.assertEqual(got["error"], "The service took too long to answer: try again in a minute")
         # (given up as soon as it had taken too long - not read on to its end)
         self.assertLess(time.monotonic() - begun, 0.05 * len(parts))
-        # (a request's whole time, a silence at its end too, under Meno's own wait: 3 minutes - as the client is made)
+        # (a request's whole time, a silence at its end too, under Meno's own wait: 10 minutes - as the client is made)
         fresh = load()
-        self.assertLess(fresh.DEADLINE + fresh.SILENT, 180)
+        self.assertLess(fresh.DEADLINE + fresh.SILENT, 600)
         made = fresh.client(KEY)
         self.assertEqual((made.timeout.read, made.timeout.connect, made.max_retries), (fresh.SILENT, 10.0, 1))
 
