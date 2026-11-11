@@ -1655,6 +1655,17 @@ class MinimiseWithRestraints(unittest.TestCase):
             self.worker.restraint_rows([{"kind": "distance", "atoms": [0, 99], "value": 2.0, "strength": 1.0}], 14)
         with self.assertRaisesRegex(ValueError, r"^Restraint 2, a dihedral, has no value or strength to hold it by$"):
             self.worker.restraint_rows([{"kind": "fixed", "atoms": [0]}, {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": 180.0}], 14)
+        # (one to be held exactly: held by no strength in its place, the distance's or the torsion's)
+        for kind, atoms in (("distance", [0, 3]), ("dihedral", [0, 1, 2, 3])):
+            with self.assertRaisesRegex(ValueError, rf"^Restraint 1, a {kind}, is to be held exactly, and this plugin holds one only by a strength$"):
+                self.worker.restraint_rows([{"kind": kind, "atoms": atoms, "value": 2.0, "exact": True}], 14)
+
+    def test_its_torsion_constant_to_five_significant_figures(self):
+        # (known answer, by hand: RDKit's torsion constraint is k (the angle off, in degrees)^2; the record's is k phi^2 / 2,
+        #  phi in radians - so one is the other times (pi/180)^2 / 2 = 3.0461742e-4 / 2 = 1.5230871e-4 per degree^2)
+        self.assertEqual(f"{self.worker.TORSION_K:.4e}", "1.5231e-04")
+        # (and so 10 degrees off, held at the measured step of 50 kcal mol-1 rad-2: 50 (10 pi/180)^2 / 2 = 0.76154 kcal/mol)
+        self.assertEqual(f"{50.0 * self.worker.TORSION_K * 10.0 ** 2:.4e}", "7.6154e-01")
 
     def test_a_conformer_search_holds_its_restraints_where_there_is_no_metal(self):
         rows = [{"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": 180.0, "strength": 100.0}]

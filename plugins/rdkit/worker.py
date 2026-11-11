@@ -1631,6 +1631,9 @@ def restraint_rows(rows, n):
             raise ValueError(f"Restraint {k + 1} is no distance, dihedral or atoms fixed that can be held")
         if any(not isinstance(a, int) or a < 0 or a >= n for a in atoms):
             raise ValueError(f"Restraint {k + 1} names an atom the molecule does not have")
+        # (held exactly, by a program that constrains: never held here by some strength in its place)
+        if kind != "fixed" and r.get("exact"):
+            raise ValueError(f"Restraint {k + 1}, a {kind}, is to be held exactly, and this plugin holds one only by a strength")
         if kind != "fixed":
             value, strength = r.get("value"), r.get("strength")
             if not isinstance(value, (int, float)) or not math.isfinite(value) or not isinstance(strength, (int, float)) or not strength > 0:
