@@ -532,11 +532,16 @@ NEB_NOT_CONVERGED = "NEB not converged"
 
 
 def optimisation_not_converged(log):
-    """Why an optimisation is not read, where ORCA took the most cycles it allows: plainly, with how many."""
+    """Why an optimisation is not read, where ORCA took the most cycles it allows: plainly, with how many - and, where
+    ORCA then ended by an error (in the properties it works out after, say), that too, in its words: the run is not
+    converged, and it is said that it ended in error, not left to be taken for a run that ended well."""
     n = reader.cycles_of(log)
     went = f" in {n} cycles" if n is not None else ""
-    return (f"The optimisation did not converge{went}, the most it was allowed (\"{MAX_CYCLES_SAID}\"): "
+    said = (f"The optimisation did not converge{went}, the most it was allowed (\"{MAX_CYCLES_SAID}\"): "
             "run it again to go on from the geometry it reached")
+    if re.search(r"error termination", log, re.I):
+        said += f"; ORCA then ended with an error: {reader.why_of(log)}"
+    return said
 
 
 def path_refining_not_converged(log):

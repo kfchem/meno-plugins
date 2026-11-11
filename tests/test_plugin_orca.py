@@ -586,13 +586,15 @@ class Collect(unittest.TestCase):
         normal = warned + "FINAL SINGLE POINT ENERGY -76.4\n                             ****ORCA TERMINATED NORMALLY****\n"
         said = ('The optimisation did not converge in 50 cycles, the most it was allowed ("did not converge but '
                 'reached the maximum number of optimization cycles"): run it again to go on from the geometry it reached')
-        for log, ended in ((props, "done"), (props, "failed"), (normal, "done")):
+        # (ended by an error after it: that said too, in ORCA's words - never left to be taken for a run that ended well)
+        erred = said + "; ORCA then ended with an error: ORCA finished by error termination in PROPERTIES"
+        for log, ended, why in ((props, "done", erred), (props, "failed", erred), (normal, "done", said)):
             # (never read as a result: the geometry it reached read for a run again alone, as one that stopped is)
             self.assertEqual(ask("collect", step="optimise", entries=[WATER], options={}, files={}, log=log, ended=ended),
-                             {"why": said, "kind": "not-converged", "partial": [{"kind": "orca", "log": True, "name": "water.out"}]})
+                             {"why": why, "kind": "not-converged", "partial": [{"kind": "orca", "log": True, "name": "water.out"}]})
             # (a saddle point's, so too)
             self.assertEqual(ask("collect", step="saddle-point", entries=[WATER], options={}, files={}, log=log, ended=ended),
-                             {"why": said, "kind": "not-converged", "partial": [{"kind": "orca", "log": True, "name": "water.out"}]})
+                             {"why": why, "kind": "not-converged", "partial": [{"kind": "orca", "log": True, "name": "water.out"}]})
         # (a single point or frequencies never optimise: the words are no sign of anything there)
         self.assertEqual(ask("collect", step="energy", entries=[WATER], options={}, files={}, log=props, ended="done"), {"why": "ORCA finished by error termination in PROPERTIES"})
 
