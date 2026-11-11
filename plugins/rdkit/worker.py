@@ -429,6 +429,9 @@ SEED = 0x4D45
 # seeded as another's are, whichever way RDKit seeds each conformer from the seed
 DRAW_STRIDE = 1_000_003
 STEPS = 2000
+#: How many threads a conformer search may use, unless asked: 0, as RDKit takes it, is every core. At most MOST_THREADS.
+THREADS = 0
+MOST_THREADS = 1024
 # the force fields conformers may be optimised in
 FIELDS = ("MMFF94", "MMFF94s", "UFF")
 #: What is done where MMFF94 or MMFF94s is asked and has no parameters for the molecule (a boron, a metal): UFF in
@@ -456,8 +459,11 @@ def options_of(m):
     the options the manifest declares for the role (roleOptions), each as it
     may be; and the draw, where Meno asks in rounds (`draws`): its seed the
     role's, moved on DRAW_STRIDE for each draw - another set of tries for
-    each, the same set for the same. A number that is none of these is
-    refused (`whole_in`)."""
+    each, the same set for the same; and `threads`, how many threads the
+    embedding and the optimising may use (0, unsaid: every core, as RDKit
+    takes it - the same seed gave the same conformers and energies whichever
+    it was, in the tests `HowManyTried` holds). A number that is none of these is refused
+    (`whole_in`)."""
     o = m.get("options") or {}
 
     def number(key, label, default, low, high):
@@ -472,6 +478,7 @@ def options_of(m):
         "seed": (number("seed", "Random seed", SEED, 0, 2**31 - 1) + draw * DRAW_STRIDE) % 2**31,
         "field": o.get("field") if o.get("field") in FIELDS else "MMFF94",
         "iters": number("iters", "Optimisation steps, at most", STEPS, 10, 100000),
+        "threads": number("threads", "Threads, at most", THREADS, 0, MOST_THREADS),
         "fallback": o.get("fallback") if o.get("fallback") in FALLBACKS else "UFF",
     }
 
@@ -1103,7 +1110,7 @@ def bridge_angles(mol, cid, holds):
     return held
 
 
-def uff_with_metals(mol, ids, holds, iters, ff_mol=None, bonds=(), apart=(), interfrag=False):
+def uff_with_metals(mol, ids, holds, iters, ff_mol=None, bonds=(), apart=(), interfrag=False, threads=THREADS):
     """UFF's optimisation of each conformer of a molecule with metals: its
     metals' ligands kept apart, its square-planar metals' angles held
     (planar_angles), a halogen bridging two metals given UFF's linear form
@@ -1149,7 +1156,7 @@ def uff_with_metals(mol, ids, holds, iters, ff_mol=None, bonds=(), apart=(), int
     more = {}
     if not any(angles.values()):
         # (the same terms for every conformer: optimised at once, on every core)
-        done = rdForceFieldHelpers.OptimizeMoleculeConfs(ff_mol, held_by(ids[0]), numThreads=0, maxIters=iters)
+        done = rdForceFieldHelpers.OptimizeMoleculeConfs(ff_mol, held_by(ids[0]), numThreads=threads, maxIters=iters)
         more = {cid: m for cid, (m, _) in zip(ids, done)}
     else:
         for cid in ids:
@@ -1166,7 +1173,7 @@ def uff_with_metals(mol, ids, holds, iters, ff_mol=None, bonds=(), apart=(), int
     return [(more[cid], uff(cid).CalcEnergy()) for cid in ids]
 
 
-def uff_stood_in(mol, ids, holds, iters):
+def uff_stood_in(mol, ids, holds, iters, threads=THREADS):
     """Each conformer optimised by UFF with the metals Meno lets stand in
     (`standIn`: a lighter one of the group) for those it has no type for,
     their bonds held at their own lengths; and each eta system's star taken
@@ -1213,7 +1220,7 @@ def uff_stood_in(mol, ids, holds, iters):
                     apart.append((c, k, holds["eta_clear"], 100.0))
     # (and its systems kept from overlapping, as while embedding: the force field counts nothing between them)
     apart += [(i, j, low, 100.0) for i, j, low in eta_apart(holds)]
-    return uff_with_metals(mol, ids, holds, iters, ff_mol=ff_mol, bonds=bonds, apart=apart, interfrag=bool(eta))
+    return uff_with_metals(mol, ids, holds, iters, ff_mol=ff_mol, bonds=bonds, apart=apart, interfrag=bool(eta), threads=threads)
 
 
 def typed_for_uff(mol, holds, sites=None):
@@ -1276,7 +1283,7 @@ def conformers_of(iso, how, made):
     return made[smiles]
 
 
-def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(), holds=None, fallback="UFF"):
+def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(), holds=None, fallback="UFF", threads=THREADS):
     """A stereoisomer's conformers, embedded (ETKDG) and optimised (MMFF94,
     MMFF94s or UFF, as asked - UFF where MMFF has no parameters, or the
     molecule refused before anything is embedded, as `fallback` says) - every one
@@ -1304,7 +1311,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
     # field could tell them apart, and which of a ring's two chairs survived was arbitrary. Every one optimised
     # is given back, as it came out.)
     params.pruneRmsThresh = -1.0
-    params.numThreads = 0  # (every core)
+    params.numThreads = threads  # (0: every core)
     bounds = metal_bounds(mol, holds)
     # (each distance held, embedded at its value: an acid held at its base is a part of its own, placed there, not
     #  wherever ETKDG lays a part - laid apart, a weak hold never brought them together, pyridine's BH3 17 A off)
@@ -1357,20 +1364,20 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
     elif eta:
         # (the stars and the systems' bonds are not UFF's: held, as uff_stood_in holds them, with no energies)
         field, results = None, None
-        stood = uff_stood_in(mol, ids, holds, iters)
+        stood = uff_stood_in(mol, ids, holds, iters, threads)
         stood_in = stood is not None
         untyped = sorted({el for el, digit in metals if digit is None and el in stand_in})
     elif field in ("MMFF94", "MMFF94s") and rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
         stood_in = False
-        results = rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(mol, numThreads=0, maxIters=iters, mmffVariant=field)
+        results = rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters, mmffVariant=field)
     elif not untyped and rdForceFieldHelpers.UFFHasAllMoleculeParams(mol):
         field, stood_in = "UFF", False
-        results = uff_with_metals(mol, ids, holds, iters) if metals and holds else rdForceFieldHelpers.UFFOptimizeMoleculeConfs(mol, numThreads=0, maxIters=iters)
+        results = uff_with_metals(mol, ids, holds, iters, threads=threads) if metals and holds else rdForceFieldHelpers.UFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters)
     else:
         # (UFF with no terms for an atom pushed it far off, or stopped on a missing parameter: it is not used
         # as it is - a lighter metal of the group stands in where one may, and no energies are given)
         field, results = None, None
-        stood = uff_stood_in(mol, ids, holds, iters) if holds else None
+        stood = uff_stood_in(mol, ids, holds, iters, threads) if holds else None
         stood_in = stood is not None
     energy = {cid: e for cid, (_, e) in zip(ids, results)} if results else None
     # (the energies of the model they were optimised in, where that is not the molecule - a lighter metal of the
