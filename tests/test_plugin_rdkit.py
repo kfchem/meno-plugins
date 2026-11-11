@@ -558,6 +558,24 @@ class HowManyTried(unittest.TestCase):
         self.assertEqual({name for name, _ in seen}, {"EmbedMultipleConfs", "MMFFOptimizeMoleculeConfs", "UFFOptimizeMoleculeConfs", "OptimizeMoleculeConfs"})
         self.assertEqual({n for _, n in seen}, {3})
 
+    def test_gives_its_threads_to_a_metal_held_in_uff_and_to_one_that_stands_in(self):
+        # (the two other places the optimising of a molecule with metals is asked for: a palladacycle, whose metal UFF types,
+        #  held in UFF with no angles to hold - and a ruthenium carbene, which UFF has no type for, a lighter metal standing in)
+        from unittest import mock
+        from rdkit.Chem import rdForceFieldHelpers
+        real = rdForceFieldHelpers.OptimizeMoleculeConfs
+        for smiles in ("C1CCCCCCCCCCCC(C)C[Pd]1", "Cl[Ru](Cl)(=Cc1ccccc1)(P(C)(C)C)P(C)(C)C"):
+            seen = []
+
+            def spy(*a, **k):
+                seen.append(k["numThreads"])
+                return real(*a, **k)
+
+            with mock.patch.object(rdForceFieldHelpers, "OptimizeMoleculeConfs", spy):
+                mb = self.worker.op_from_smiles({"smiles": smiles})["molblock"]
+                self.worker.op_conformers({**held(mb), "count": 3, "options": {"threads": 3}})
+            self.assertEqual(seen, [3], smiles)
+
     def test_makes_none_where_it_is_sent_no_number(self):
         with self.assertRaisesRegex(ValueError, "How many conformers to try was not given"):
             self.worker.op_conformers({**held(self.worker.op_from_smiles({"smiles": "CCO"})["molblock"])})
