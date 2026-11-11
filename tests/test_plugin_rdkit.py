@@ -520,8 +520,8 @@ class HowManyTried(unittest.TestCase):
                 self.worker.options_of({"count": 5, "options": {"threads": bad}})
 
     def test_gives_the_same_conformers_and_energies_whatever_the_threads(self):
-        # (the same seed, one thread or every core or some: frame for frame, energy for energy - RDKit seeds each
-        #  conformer by its place in the set, and optimises each alone, so no thread count moves any of them)
+        # (the same seed, one thread or every core or some: frame for frame, energy for energy - as this shows, on the
+        #  molecules here and the RDKit locked; nothing is pruned while embedding, and each conformer is optimised alone)
         for smiles, field in (("CCCCC(=O)OC", "MMFF94"), ("CC(C)Cc1ccc(cc1)C(C)C(=O)O", "MMFF94"), ("C1CCCCCCC1", "UFF"), ("OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O", "MMFF94s")):
             mb = self.worker.op_from_smiles({"smiles": smiles})["molblock"]
             made = lambda threads: self.worker.op_conformers({"molblock": mb, "count": 24, "options": {"field": field, "threads": threads}})

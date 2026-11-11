@@ -461,8 +461,8 @@ def options_of(m):
     role's, moved on DRAW_STRIDE for each draw - another set of tries for
     each, the same set for the same; and `threads`, how many threads the
     embedding and the optimising may use (0, unsaid: every core, as RDKit
-    takes it - the same seed gives the same conformers and energies whichever
-    it is, `HowManyTried`). A number that is none of these is refused
+    takes it - the same seed gave the same conformers and energies whichever
+    it was, in the tests `HowManyTried` holds). A number that is none of these is refused
     (`whole_in`)."""
     o = m.get("options") or {}
 
