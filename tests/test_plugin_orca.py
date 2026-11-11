@@ -517,7 +517,7 @@ class PathSearch(unittest.TestCase):
         stopped = ask("collect", step="path-search", entries=[{**H2, "end": H2_END}], options={}, files={}, log=NOT_CONVERGED_LOG, ended="failed")
         self.assertEqual(stopped, {"why": 'Its band did not converge in 3 iterations: ORCA stopped before refining a highest point ("NEB not converged")', "kind": "not-converged"})
         # (its band converged, refining its highest point not, in the steps ORCA allows - ORCA then going on to its
-        #  properties, there ending by an error that says nothing of it, or ending normally: said plainly, nothing read -
+        #  properties, there ending by an error, said too, or ending normally: said plainly, nothing read -
         #  not even the band; no point refined, no entry)
         refining = PATH_LOG.replace("     TS optimization                   ... 4  44.4%", "     TS optimization                   ... 1001  91.2%")
         refining = ("       Made-up words: did not converge but reached the maximum number of\n       optimization cycles. More made-up words.\n" + refining)
@@ -525,9 +525,11 @@ class PathSearch(unittest.TestCase):
                 'converge but reached the maximum number of optimization cycles"): raise Steps for refining its highest point, '
                 'or give ends nearer the path')
         props = refining.replace("****ORCA TERMINATED NORMALLY****", "ERROR (MADE-UP): a made-up failure\nORCA finished by error termination in PROPERTIES")
-        for log, ended in ((props, "done"), (props, "failed"), (refining, "done")):
+        # (ended by an error after it: that said too, in ORCA's words, as an optimisation's is)
+        erred = said + "; ORCA then ended with an error: ORCA finished by error termination in PROPERTIES"
+        for log, ended, why in ((props, "done", erred), (props, "failed", erred), (refining, "done", said)):
             self.assertEqual(ask("collect", step="path-search", entries=[{**H2, "end": H2_END}], options={}, files=PATH_FILES, log=log, ended=ended),
-                             {"why": said, "kind": "not-converged"})
+                             {"why": why, "kind": "not-converged"})
         # (an image's SCF that did not converge, ORCA carrying on: a warning, in its words - the path read all the same)
         warned = ask("collect", step="path-search", entries=[{**H2, "end": H2_END}], options=defaults("path-search"), files=PATH_FILES, log=SCF_FAILED + PATH_LOG, ended="done")["outputs"][0]
         self.assertEqual(warned["energies"], [-1.17, -1.10, -1.09, -1.12])
@@ -586,13 +588,15 @@ class Collect(unittest.TestCase):
         normal = warned + "FINAL SINGLE POINT ENERGY -76.4\n                             ****ORCA TERMINATED NORMALLY****\n"
         said = ('The optimisation did not converge in 50 cycles, the most it was allowed ("did not converge but '
                 'reached the maximum number of optimization cycles"): run it again to go on from the geometry it reached')
-        for log, ended in ((props, "done"), (props, "failed"), (normal, "done")):
+        # (ended by an error after it: that said too, in ORCA's words - never left to be taken for a run that ended well)
+        erred = said + "; ORCA then ended with an error: ORCA finished by error termination in PROPERTIES"
+        for log, ended, why in ((props, "done", erred), (props, "failed", erred), (normal, "done", said)):
             # (never read as a result: the geometry it reached read for a run again alone, as one that stopped is)
             self.assertEqual(ask("collect", step="optimise", entries=[WATER], options={}, files={}, log=log, ended=ended),
-                             {"why": said, "kind": "not-converged", "partial": [{"kind": "orca", "log": True, "name": "water.out"}]})
+                             {"why": why, "kind": "not-converged", "partial": [{"kind": "orca", "log": True, "name": "water.out"}]})
             # (a saddle point's, so too)
             self.assertEqual(ask("collect", step="saddle-point", entries=[WATER], options={}, files={}, log=log, ended=ended),
-                             {"why": said, "kind": "not-converged", "partial": [{"kind": "orca", "log": True, "name": "water.out"}]})
+                             {"why": why, "kind": "not-converged", "partial": [{"kind": "orca", "log": True, "name": "water.out"}]})
         # (a single point or frequencies never optimise: the words are no sign of anything there)
         self.assertEqual(ask("collect", step="energy", entries=[WATER], options={}, files={}, log=props, ended="done"), {"why": "ORCA finished by error termination in PROPERTIES"})
 

@@ -532,22 +532,30 @@ NEB_NOT_CONVERGED = "NEB not converged"
 
 
 def optimisation_not_converged(log):
-    """Why an optimisation is not read, where ORCA took the most cycles it allows: plainly, with how many."""
+    """Why an optimisation is not read, where ORCA took the most cycles it allows: plainly, with how many - and, where
+    ORCA then ended by an error (in the properties it works out after, say), that too, in its words: the run is not
+    converged, and it is said that it ended in error, not left to be taken for a run that ended well."""
     n = reader.cycles_of(log)
     went = f" in {n} cycles" if n is not None else ""
     return (f"The optimisation did not converge{went}, the most it was allowed (\"{MAX_CYCLES_SAID}\"): "
-            "run it again to go on from the geometry it reached")
+            "run it again to go on from the geometry it reached") + then_erred(log)
+
+
+def then_erred(log):
+    """Where ORCA, having taken the most cycles it allows, then ended by an error (in the properties it works out
+    after, say): that too, in its words - never left to be taken for a run that ended well. Nothing where it did not."""
+    return f"; ORCA then ended with an error: {reader.why_of(log)}" if re.search(r"error termination", log, re.I) else ""
 
 
 def path_refining_not_converged(log):
     """Why a path search is not read, where its band converged but refining its highest point took the most steps ORCA
-    allows: plainly, with how far each went, and what to change."""
+    allows: plainly, with how far each went, and what to change - and how ORCA ended after, where it ended by an error."""
     parts = dict(reader.path_iterations(log))
     neb, ts = parts.get("NEB"), parts.get("TS optimization")
     band = f"Its band converged in {neb} iterations" if neb is not None else "Its band converged"
     went = f" in {ts} steps" if ts is not None else ""
     return (f"{band}, but refining its highest point did not converge{went} (\"{MAX_CYCLES_SAID}\"): "
-            "raise Steps for refining its highest point, or give ends nearer the path")
+            "raise Steps for refining its highest point, or give ends nearer the path") + then_erred(log)
 
 
 def path_not_converged(log):
