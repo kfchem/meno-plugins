@@ -247,6 +247,66 @@ class Steps(unittest.TestCase):
             said = worker.answer(json.dumps({"id": 1, "op": "prepare", "step": "saddle-point", "entries": [{**guess, "sides": sides}], "options": opts}))
             self.assertFalse(said["ok"])
 
+    def test_an_optimisation_holds_the_atoms_fixed_meno_asks_it_to_by_modredundant_from_1_in_the_input_orientation(self):
+        # (the Gaussian 16 reference: Opt=ModRedundant, its input section after the molecule specification and before the
+        #  file Output names, ended by a blank line - X n F, atom numbers from 1; NoSymm keeps the input orientation)
+        fixed = {**ENTRY, "restraints": [{"kind": "fixed", "atoms": [2, 0]}, {"kind": "fixed", "atoms": [0]}]}
+        text = ask("prepare", step="optimise", entries=[fixed], options={**step_defaults("optimise"), "hold": "fixed"})["jobs"][0]["files"][0]["text"]
+        blocks = [b.splitlines() for b in text.strip("\n").split("\n\n")]
+        self.assertEqual(blocks[0][-1], "# B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ Opt=ModRedundant NoSymm Output=WFX")
+        self.assertEqual(blocks[2][0], "0 1")
+        self.assertEqual(blocks[3], ["X 1 F", "X 3 F"])
+        self.assertEqual(blocks[4], ["wavefunction.wfx"])
+        # (NoSymm typed already: not said twice; anything else asked of its symmetry: refused, that entry alone)
+        typed = ask("prepare", step="optimise", entries=[fixed], options={**step_defaults("optimise"), "hold": "fixed", "keywords": "nosymm Int=UltraFine"})["jobs"][0]["files"][0]["text"]
+        self.assertIn("Opt=ModRedundant nosymm Int=UltraFine Output=WFX", typed.splitlines()[0])
+        said = worker.answer(json.dumps({"id": 1, "op": "prepare", "step": "optimise", "entries": [fixed], "options": {**step_defaults("optimise"), "hold": "fixed", "keywords": "Symm=Loose"}}))
+        self.assertFalse(said["ok"])
+        self.assertIn("NoSymm", said["error"])
+        # (not asked to - Meno's default - nothing fixed, a lone atom, or a single point: as before)
+        lone = {**ENTRY, "atoms": ENTRY["atoms"][:1], "charge": 0, "multiplicity": 3, "restraints": [{"kind": "fixed", "atoms": [0]}]}
+        for step, options, entry in [("optimise", step_defaults("optimise"), fixed), ("optimise", {**step_defaults("optimise"), "hold": "fixed"}, ENTRY), ("energy", {**step_defaults("energy"), "hold": "fixed"}, fixed), ("optimise", {**step_defaults("optimise"), "hold": "fixed"}, lone)]:
+            text = ask("prepare", step=step, entries=[entry], options=options)["jobs"][0]["files"][0]["text"]
+            self.assertNotIn("ModRedundant", text)
+            self.assertNotIn("NoSymm", text)
+            self.assertNotIn(" F\n", text)
+
+    def test_a_saddle_point_holds_its_atoms_fixed_after_each_molecule_specification(self):
+        opts = {**step_defaults("saddle-point"), "hold": "fixed"}
+        rows = [{"kind": "fixed", "atoms": [1]}]
+        alone = ask("prepare", step="saddle-point", entries=[{**ENTRY, "name": "ts 1", "restraints": rows}], options=opts)["jobs"][0]["files"][0]["text"]
+        lines = alone.splitlines()
+        self.assertEqual(lines[0], "# B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ Opt=(TS,NoEigenTest,CalcFC,ModRedundant) NoSymm")
+        self.assertEqual(alone.strip("\n").split("\n\n")[-1], "X 2 F")
+        # (Opt=QST3: the same lines after the reactant's, the product's and the guess's - "a ModRedundant input section must
+        #  follow each geometry specification")
+        moved = lambda e, dy: {**e, "atoms": [{**a, "y": a["y"] + dy} for a in e["atoms"]]}
+        guess = {**ENTRY, "name": "ts 1", "restraints": rows, "sides": {"reactant": moved(ENTRY, -0.1), "product": moved(ENTRY, 0.1)}}
+        text = ask("prepare", step="saddle-point", entries=[guess], options=opts)["jobs"][0]["files"][0]["text"]
+        self.assertEqual(text.splitlines()[0], "# B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ Opt=(QST3,CalcFC,ModRedundant) NoSymm")
+        blocks = [b.splitlines() for b in text.strip("\n").split("\n\n")]
+        self.assertEqual([b[0] for b in blocks[1::3]], ["ts 1 reactant side", "ts 1 product side", "ts 1 guess"])
+        self.assertEqual([b[0] for b in blocks[2::3]], ["0 1", "0 1", "0 1"])
+        self.assertEqual(blocks[3::3], [["X 2 F"]] * 3)
+
+    def test_a_distance_or_torsion_asked_of_it_refuses_that_entry_alone_naming_it(self):
+        def refused(rows, step="optimise"):
+            out = ask("prepare", step=step, entries=[{**ENTRY, "restraints": rows}, ENTRY], options={**step_defaults(step), "hold": "fixed"})
+            self.assertEqual([j["entries"] for j in out["jobs"]], [[1]])
+            self.assertEqual(len(out["refused"]), 1)
+            return out["refused"][0]["why"]
+
+        # (exact: ModRedundant freezes a coordinate where it stands, at no value given - never held there in its place)
+        self.assertEqual(refused([{"kind": "fixed", "atoms": [0]}, {"kind": "distance", "atoms": [0, 2], "value": 1.5, "exact": True}]), "Gaussian: it holds atoms fixed alone: Gaussian's ModRedundant input freezes a distance only where it stands, at no value it is given - distance 1-3.")
+        self.assertEqual(refused([{"kind": "dihedral", "atoms": [1, 0, 2, 1], "value": 60, "exact": True}], "saddle-point"), "Gaussian: it holds atoms fixed alone: Gaussian's ModRedundant input freezes a torsion only where it stands, at no value it is given - torsion 2-1-3-2.")
+        # (by a strength, a kind it does not know, an atom it has not)
+        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "strength": 500}]), "Gaussian: it holds atoms fixed alone, no distance by a strength: distance 1-3.")
+        self.assertEqual(refused([{"kind": "angle", "atoms": [0, 1, 2], "value": 104}]), "Gaussian: its restraints hold 'angle', which it holds none of: only atoms fixed.")
+        self.assertEqual(refused([{"kind": "fixed", "atoms": [3]}]), "Gaussian: an atom its restraints hold is not one of its atoms.")
+        # (every one refused: the step refused as a whole, in its words)
+        said = worker.answer(json.dumps({"id": 1, "op": "prepare", "step": "optimise", "entries": [{**ENTRY, "restraints": [{"kind": "fixed", "atoms": [5]}]}], "options": {**step_defaults("optimise"), "hold": "fixed"}}))
+        self.assertEqual(said["error"], "Gaussian: an atom its restraints hold is not one of its atoms.")
+
     def test_a_saddle_point_s_output_read_as_an_optimisations_is(self):
         done = " Optimization completed.\n Normal termination of Gaussian 16 at Thu Oct  8 12:00:00 2026.\n"
         self.assertEqual(ask("collect", step="saddle-point", entries=[ENTRY], options={}, files={}, log=done, ended="done"), {"read": [{"kind": "gaussian", "log": True, "name": "water.log"}]})
