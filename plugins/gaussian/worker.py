@@ -82,6 +82,21 @@ and from nothing else:
   from the input stream, on a separate line" (gaussian.com, "Output"),
   after the molecule specification, ended by a blank line.
 
+Atoms held fixed where they stand, where Meno asks an optimisation - to a
+minimum, or to a saddle point - to hold them (`hold`: "fixed", the entry's
+`restraints`): Opt=ModRedundant, and after the molecule specification -
+after each one, for Opt=QST3 - the reference's ModRedundant input section,
+ended by a blank line ("Section Ordering": after the molecule
+specification, before any file named for Output): a line `X n F` for each
+atom, X its Cartesian coordinates, F "Freeze the coordinate in the
+optimization", atoms numbered from 1 (gaussian.com, "Opt", ModRedundant).
+And NoSymm, which "prevents molecule reorientation and causes all
+computations to be performed in the input orientation" (gaussian.com,
+"Symmetry"): the atoms come back where they were given, as Meno checks
+they did. A distance or a torsion is not held: the reference's
+ModRedundant input freezes a coordinate where it stands, at no value it is
+given - such a restraint is refused, the entry alone, in words.
+
 A lone atom - an ion of a salt, say - asked to be optimised by a step is
 run as SP: it has no geometry to optimise, and Gaussian, given Opt for
 one atom, stops in its optimiser (l103). It comes back where it was, with
@@ -96,7 +111,7 @@ import sys
 
 import reader
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 
 # The elements by atomic number, from 1: what an atom's element may be.
 SYMBOLS = (
@@ -184,11 +199,12 @@ def coordinate(atom, axis):
     return float(v)
 
 
-def gaussian_input(name, molecule, options, sections=(), job_route=None):
+def gaussian_input(name, molecule, options, sections=(), job_route=None, modify=()):
     """The input file's text, as the reference lays it out - and, after the molecule, further molecule specifications
     where the job takes several (`sections`, each a title and a molecule, the charge and multiplicity the first's:
     Opt=QST3's product and guess after its reactant), the job's route words given whole (`job_route`) where it is no
-    `job` of JOBS."""
+    `job` of JOBS; and after each molecule specification its ModRedundant input section, ended by a blank line, where
+    there is one (`modify`, its lines)."""
     atoms = molecule.get("atoms") or []
     if not atoms:
         raise Refused("there are no atoms to write")
@@ -239,6 +255,8 @@ def gaussian_input(name, molecule, options, sections=(), job_route=None):
         x, y, z = (coordinate(a, axis) for axis in ("x", "y", "z"))
         lines.append(f"{element_label(a):<10}{x:>16.8f}{y:>16.8f}{z:>16.8f}")
     lines.append("")
+    if modify:
+        lines.extend([*modify, ""])
     # (each further molecule specification after its own title section and blank line, its atoms in the first's order -
     #  the elements the same, as Opt=QST3 needs them)
     for title, other in sections:
@@ -252,6 +270,8 @@ def gaussian_input(name, molecule, options, sections=(), job_route=None):
             x, y, z = (coordinate(a, axis) for axis in ("x", "y", "z"))
             lines.append(f"{element_label(a):<10}{x:>16.8f}{y:>16.8f}{z:>16.8f}")
         lines.append("")
+        if modify:
+            lines.extend([*modify, ""])
     return "\n".join(lines) + "\n"
 
 
@@ -289,6 +309,55 @@ SADDLE = "saddle-point"
 HESSIANS = {"computed": "CalcFC", "model": ""}
 
 
+#: What holds atoms fixed (module docstring): the route's words, and Gaussian's keyword that keeps its input orientation.
+MODIFIED = "ModRedundant"
+NO_SYMMETRY = "NoSymm"
+#: Words of the keywords typed that ask Gaussian something of its symmetry: with atoms held, refused but for NoSymm itself.
+SYMMETRY_WORD = re.compile(r"(?i)(?<![A-Za-z])(No)?Symm")
+
+
+def held(step, options, entry):
+    """The atoms an optimisation - to a minimum, or to a saddle point - holds fixed where they stand, from 1 as Gaussian
+    numbers them: none unless Meno asks it to (`hold`: "fixed") and the entry's restraints fix some. A distance or a
+    torsion asked of it refused, saying which: never dropped unsaid, never held another way."""
+    if step not in ("optimise", SADDLE) or options.get("hold", "no") != "fixed":
+        return []
+    n = len(entry.get("atoms") or [])
+    atoms = set()
+    for r in entry.get("restraints") or []:
+        kind, of = r.get("kind"), r.get("atoms") or []
+        if any(not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < n for a in of):
+            raise Refused("an atom its restraints hold is not one of its atoms")
+        if kind == "fixed":
+            if not of:
+                raise Refused("a row of atoms fixed names none")
+            atoms.update(of)
+            continue
+        what = {"distance": "distance", "dihedral": "torsion"}.get(kind)
+        if what is None or not of:
+            raise Refused(f"its restraints hold {kind!r}, which this plugin holds none of: only atoms fixed")
+        said = f"{what} {'-'.join(str(a + 1) for a in of)}"
+        if r.get("exact"):
+            raise Refused(f"this plugin holds atoms fixed alone: Gaussian's ModRedundant input freezes a {what} only where it stands, at no value it is given - {said}")
+        raise Refused(f"this plugin holds atoms fixed alone, no {what} by a strength: {said}")
+    return [a + 1 for a in sorted(atoms)]
+
+
+def frozen(atoms):
+    """The ModRedundant input section's lines that freeze each atom's Cartesian coordinates (`X n F`), from 1."""
+    return [f"X {a} F" for a in atoms]
+
+
+def unturned(options):
+    """The keywords typed, with NoSymm after them where Gaussian is to keep the input orientation - none where they say
+    NoSymm already; refused where they ask anything else of its symmetry."""
+    more = options.get("keywords", "")
+    said = [m.group(0) for m in SYMMETRY_WORD.finditer(more)]
+    if any(not w.lower().startswith("nosymm") for w in said):
+        raise Refused("atoms held need Gaussian to keep the molecule as it is given (NoSymm), and the keywords ask something of its symmetry")
+    return more if said else " ".join(p for p in (more, NO_SYMMETRY) if p)
+
+
 def saddle_input(entry, options, cores):
     """An entry's input for an optimisation to a saddle point: Opt=TS from it alone, or Opt=QST3 from its sides and it."""
     hessian = HESSIANS.get(options.get("hessian", "computed"))
@@ -301,12 +370,15 @@ def saddle_input(entry, options, cores):
     if sides is not None and (not isinstance(sides, dict) or not sides.get("reactant") or not sides.get("product")):
         raise Refused("a saddle point's sides are both, or neither")
     how = ["QST3"] if sides else ["TS", "NoEigenTest"]
-    route = "Opt=(" + ",".join(how + ([hessian] if hessian else []) + (["Tight"] if tight else [])) + ")"
-    given = {**common(options, cores, entry), "keywords": common_keywords(options, False)}
+    # (atoms held: their lines after each molecule specification - the reactant's, the product's and the guess's alike, the
+    #  atoms in one order)
+    fixed = held(SADDLE, options, entry)
+    route = "Opt=(" + ",".join(how + ([hessian] if hessian else []) + (["Tight"] if tight else []) + ([MODIFIED] if fixed else [])) + ")"
+    given = {**common(options, cores, entry), "keywords": common_keywords({**options, "keywords": unturned(options)} if fixed else options, False)}
     name = entry.get("name") or "guess"
     if not sides:
-        return gaussian_input(INPUT, entry, given, job_route=route)
-    return gaussian_input(INPUT, sides["reactant"], {**given, "title": f"{name} reactant side"}, sections=[(f"{name} product side", sides["product"]), (f"{name} guess", entry)], job_route=route)
+        return gaussian_input(INPUT, entry, given, job_route=route, modify=frozen(fixed))
+    return gaussian_input(INPUT, sides["reactant"], {**given, "title": f"{name} reactant side"}, sections=[(f"{name} product side", sides["product"]), (f"{name} guess", entry)], job_route=route, modify=frozen(fixed))
 
 
 def common(options, cores, entry):
@@ -342,11 +414,14 @@ def step_input(step, entry, options, cores):
     if job is None:
         raise Refused(f"this plugin does no {step!r}")
     # (a lone atom: its energy where it is)
-    if step == "optimise" and len(entry.get("atoms") or []) == 1:
+    lone = step == "optimise" and len(entry.get("atoms") or []) == 1
+    if lone:
         job = STEP_JOBS["energy"]
+    # (atoms held: Opt=ModRedundant, their lines after the molecule)
+    fixed = [] if lone else held(step, options, entry)
     keep = keeps_wavefunction(options)
-    given = {**common(options, cores, entry), "job": job, "keywords": common_keywords(options, keep)}
-    text = gaussian_input(INPUT, entry, given)
+    given = {**common(options, cores, entry), "job": job, "keywords": common_keywords({**options, "keywords": unturned(options)} if fixed else options, keep)}
+    text = gaussian_input(INPUT, entry, given, job_route=f"{JOBS[job]}={MODIFIED}" if fixed else None, modify=frozen(fixed))
     # (the wavefunction's file, named on a line of its own after the molecule)
     return text + f"{WAVEFUNCTION}\n\n" if keep else text
 
@@ -384,7 +459,17 @@ def op_prepare(m):
     memory = memory_of(options)
     named = windows()
     jobs = []
+    # (an entry whose restraints ask what it does not hold refused alone, saying why - the others run; every one, and the
+    #  step is refused as a whole)
+    refused = []
+    first = None
     for i, entry in enumerate(m.get("entries") or []):
+        try:
+            held(m.get("step"), options, entry)
+        except Refused as e:
+            refused.append({"entry": i, "why": f"Gaussian: {e}.", "kind": "refused"})
+            first = first or e
+            continue
         jobs.append({
             "entries": [i],
             "program": PROGRAM,
@@ -397,8 +482,8 @@ def op_prepare(m):
             **({"memory": memory} if memory else {}),
         })
     if not jobs:
-        raise Refused("nothing came in")
-    return {"jobs": jobs}
+        raise first or Refused("nothing came in")
+    return {"jobs": jobs, **({"refused": refused} if refused else {})}
 
 
 def output_name(entry):

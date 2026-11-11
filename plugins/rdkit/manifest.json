@@ -26,7 +26,7 @@
     {"role": "drawing"}
   ],
   "steps": [
-    {"kinds": ["conformers"], "programs": ["python"]},
+    {"kinds": ["conformers"], "programs": ["python"], "restraints": ["distance", "dihedral"]},
     {
       "kinds": ["minimise"],
       "programs": ["python"],

@@ -1,7 +1,7 @@
 {
   "id": "gaussian",
   "name": "Gaussian interface",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Optimises molecules in 3D and works out their energies and vibrations with Gaussian 16 - installed separately, under its own licence, never downloaded by Meno - writes a molecule in 3D as Gaussian 16 input, and reads Gaussian 16's output and formatted checkpoints.",
   "licence": "Apache-2.0",
   "homepage": "https://gaussian.com",
@@ -49,6 +49,7 @@
     {
       "kinds": ["optimise", "energy", "frequencies"],
       "programs": ["g16"],
+      "restraints": ["fixed"],
       "options": [
         {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
         {"id": "basis", "label": "Basis set", "type": "text", "default": "6-31G(d)"},
@@ -91,6 +92,7 @@
     {
       "kinds": ["saddle-point"],
       "programs": ["g16"],
+      "restraints": ["fixed"],
       "options": [
         {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
         {"id": "basis", "label": "Basis set", "type": "text", "default": "6-31G(d)"},
