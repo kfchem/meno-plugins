@@ -188,22 +188,61 @@ def mass_of(el, atom):
 LOW_VIBRATIONS = {"none": "", "rrho": "%freq QuasiRRHO false end"}
 
 
+#: The restraints an optimisation holds as ORCA constrains them (%geom Constraints; ORCA 6.1 manual, 4.1, *Running
+#: Constrained Optimizations*): each exactly - a distance at its value, in angstroms ({B a b value C}), a dihedral at its
+#: value, in degrees ({D a b c d value C}), atoms fixed where they stand ({C a C}) - atoms from 0, as ORCA numbers them.
+#: ORCA holds none by a strength: a distance or a dihedral restrained (the entry record's `strength`) is refused, never
+#: held exactly in its place. Of an optimisation to a saddle point, atoms fixed alone, as before: the manual gives its
+#: constraints for an optimisation, and does not say that a distance or a dihedral is held under OptTS.
+EXACT = {"optimise": ("distance", "dihedral"), "saddle-point": ()}
+#: How many atoms each kind of restraint holds, and ORCA's letter for it.
+SHAPES = {"distance": (2, "B"), "dihedral": (4, "D")}
+
+
+def turned(degrees):
+    """A dihedral's value as Meno writes one: in (-180, 180]."""
+    d = math.fmod(degrees, 360.0)
+    if d <= -180.0:
+        d += 360.0
+    elif d > 180.0:
+        d -= 360.0
+    return d
+
+
 def held(step, options, entry):
-    """The atoms an optimisation - to a minimum, or to a saddle point - holds where they stand, from 0 as ORCA numbers
-    them: none unless Meno asks it to (`hold`: "fixed") and the entry's restraints fix some. A restraint of another kind
-    it is asked to hold with them - a distance, a torsion - refused: this plugin holds atoms fixed alone, and never drops
-    one unsaid."""
-    if step not in ("optimise", "saddle-point") or options.get("hold", "no") != "fixed":
+    """What an optimisation - to a minimum, or to a saddle point - holds as ORCA constrains it, each in ORCA's words
+    (`EXACT`): none unless Meno asks it to (`hold`: "fixed") and the entry has restraints; a distance or dihedral held
+    exactly first, as they came, then the atoms fixed. A restraint it does not hold - one by a strength, of a kind it
+    has not, or not as the entry record writes one - refused, saying which: never dropped unsaid, never held another
+    way."""
+    if step not in EXACT or options.get("hold", "no") != "fixed":
         return []
-    restraints = entry.get("restraints") or []
-    other = sorted({r.get("kind") for r in restraints if r.get("kind") != "fixed"})
-    if other:
-        raise Refused(f"its restraints hold {' and '.join(str(k) for k in other)}, which it holds none of: only atoms fixed")
     n = len(entry.get("atoms") or [])
-    atoms = sorted({a for r in restraints for a in r.get("atoms") or []})
-    if any(not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < n for a in atoms):
-        raise Refused("an atom it fixes is not one of its atoms")
-    return atoms
+    exact, fixed = [], set()
+    for r in entry.get("restraints") or []:
+        kind, atoms = r.get("kind"), r.get("atoms") or []
+        if any(not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < n for a in atoms):
+            raise Refused("an atom its restraints hold is not one of its atoms")
+        if kind == "fixed":
+            if not atoms:
+                raise Refused("a row of atoms fixed names none")
+            fixed.update(atoms)
+            continue
+        if kind not in SHAPES:
+            raise Refused(f"its restraints hold {kind!r}, which it holds none of")
+        what = "torsion" if kind == "dihedral" else kind
+        said = f"{what} {'-'.join(str(a + 1) for a in atoms)}"
+        if not r.get("exact") and r.get("strength") is not None:
+            raise Refused(f"it holds a {what} only exactly, not by a strength: {said} has a strength")
+        if kind not in EXACT[step]:
+            raise Refused(f"it holds no {what} as it optimises to a saddle point, only atoms fixed: {said}")
+        count, letter = SHAPES[kind]
+        value = r.get("value")
+        if not r.get("exact") or r.get("strength") is not None or len(atoms) != count or len(set(atoms)) != count or isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or (kind == "distance" and not value > 0):
+            raise Refused(f"its {said} is not a {what} held exactly at a value")
+        value = turned(float(value)) if kind == "dihedral" else float(value)
+        exact.append(f"{{{letter} {' '.join(str(a) for a in atoms)} {value:.6f} C}}")
+    return exact + [f"{{C {a} C}}" for a in sorted(fixed)]
 
 
 def orca_input(step, entry, options, cores):
@@ -255,11 +294,11 @@ def orca_input(step, entry, options, cores):
     steps = whole(options.get("maxiter", 0), "The steps each way", 0) if step == "reaction-path" else 0
     if steps:
         lines.append(f"%irc maxiter {steps} end")
-    # (the atoms it holds where they stand, where Meno asks it to: Cartesian constraints in the %geom block (4.5.13), from
-    #  0 as ORCA numbers atoms - one block, beside a saddle point's first Hessian)
-    fixed = held(step, options, entry)
-    if fixed:
-        constraints = "Constraints " + " ".join(f"{{C {a} C}}" for a in fixed) + " end"
+    # (what it holds, where Meno asks it to: constraints in the %geom block (`EXACT`) - one block, beside a saddle point's
+    #  first Hessian)
+    constrained = held(step, options, entry)
+    if constrained:
+        constraints = "Constraints " + " ".join(constrained) + " end"
         lines.append(f"%geom {'Calc_Hess true ' if hessian else ''}{constraints} end")
     elif hessian:
         lines.append(hessian)

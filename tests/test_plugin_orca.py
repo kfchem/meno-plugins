@@ -54,6 +54,17 @@ WATER = {
     "multiplicity": 1,
 }
 
+#: Hydrogen peroxide, H-O-O-H: four atoms, a torsion to hold.
+PEROXIDE = {
+    "name": "hydrogen peroxide",
+    "atoms": [
+        {"el": "H", "x": 0.8, "y": 0.9, "z": 0.4},
+        {"el": "O", "x": 0.7, "y": 0.0, "z": 0.0},
+        {"el": "O", "x": -0.7, "y": 0.0, "z": 0.0},
+        {"el": "H", "x": -0.8, "y": -0.9, "z": 0.4},
+    ],
+}
+
 
 def ask(op, **m):
     said = worker.answer(json.dumps({"id": 1, "op": op, **m}))
@@ -98,11 +109,51 @@ class Prepare(unittest.TestCase):
             text = ask("prepare", step=step, entries=[entry], options=options)["jobs"][0]["files"][0]["text"]
             self.assertNotIn("Constraints", text)
 
-    def test_an_optimisation_asked_to_hold_a_torsion_refuses_that_entry_alone_naming_it(self):
-        both = {**WATER, "restraints": [{"kind": "fixed", "atoms": [0]}, {"kind": "dihedral", "atoms": [0, 1, 2, 0], "value": 180, "strength": 1}]}
-        out = ask("prepare", step="optimise", entries=[both, WATER], options={**defaults("optimise"), "hold": "fixed"})
-        self.assertEqual([j["entries"] for j in out["jobs"]], [[1]])
-        self.assertEqual(out["refused"], [{"entry": 0, "why": "ORCA: its restraints hold dihedral, which it holds none of: only atoms fixed.", "kind": "refused"}])
+    def test_an_optimisation_holds_a_distance_and_a_torsion_exactly_at_their_values_as_the_manual_writes_them(self):
+        # (ORCA 6.1 manual, 4.1, Running Constrained Optimizations: { B N1 N2 value C }, { D N1 N2 N3 N4 value C }, atoms
+        #  from 0, angstroms and degrees; distances and torsions as they came, then the atoms fixed)
+        rows = [
+            {"kind": "distance", "atoms": [0, 2], "value": 1.5, "exact": True},
+            {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": -60, "exact": True},
+            {"kind": "fixed", "atoms": [3, 1]},
+        ]
+        lines = ask("prepare", step="optimise", entries=[{**PEROXIDE, "restraints": rows}], options={**defaults("optimise"), "hold": "fixed"})["jobs"][0]["files"][0]["text"].splitlines()
+        self.assertIn("%geom Constraints {B 0 2 1.500000 C} {D 0 1 2 3 -60.000000 C} {C 1 C} {C 3 C} end end", lines)
+
+    def test_a_torsion_is_written_as_meno_writes_one_in_minus_180_to_180(self):
+        for value, said in [(180, "180.000000"), (-180, "180.000000"), (270, "-90.000000"), (-190, "170.000000"), (540, "180.000000"), (59.98, "59.980000")]:
+            row = {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": value, "exact": True}
+            text = ask("prepare", step="optimise", entries=[{**PEROXIDE, "restraints": [row]}], options={**defaults("optimise"), "hold": "fixed"})["jobs"][0]["files"][0]["text"]
+            self.assertIn(f"{{D 0 1 2 3 {said} C}}", text, value)
+
+    def test_a_row_held_by_a_strength_or_not_as_the_record_writes_one_refuses_that_entry_alone_naming_it(self):
+        def refused(rows, step="optimise"):
+            options = {**defaults(step), "hold": "fixed", **({"method": "B3LYP"} if step == "saddle-point" else {})}
+            out = ask("prepare", step=step, entries=[{**PEROXIDE, "restraints": rows}, WATER], options=options)
+            self.assertEqual([j["entries"] for j in out["jobs"]], [[1]])
+            self.assertEqual(len(out["refused"]), 1)
+            return out["refused"][0]["why"]
+
+        # (restrained, never held exactly in its place: ORCA holds none by a strength)
+        self.assertEqual(refused([{"kind": "fixed", "atoms": [0]}, {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": 180, "strength": 1}]), "ORCA: it holds a torsion only exactly, not by a strength: torsion 1-2-3-4 has a strength.")
+        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "strength": 500}]), "ORCA: it holds a distance only exactly, not by a strength: distance 1-3 has a strength.")
+        # (exact, to a saddle point: atoms fixed alone there)
+        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "exact": True}], "saddle-point"), "ORCA: it holds no distance as it optimises to a saddle point, only atoms fixed: distance 1-3.")
+        # (not a row as the entry record writes one: exact with a strength too, no value, its atoms not its kind's, an atom
+        #  twice, a distance of none, a kind it does not know, an atom it has not)
+        for row in [
+            {"kind": "distance", "atoms": [0, 2], "value": 1.5, "strength": 500, "exact": True},
+            {"kind": "distance", "atoms": [0, 2], "exact": True},
+            {"kind": "distance", "atoms": [0, 2], "value": 1.5},
+            {"kind": "distance", "atoms": [0, 2], "value": float("nan"), "exact": True},
+            {"kind": "distance", "atoms": [0, 2], "value": True, "exact": True},
+            {"kind": "distance", "atoms": [0, 1, 2], "value": 1.5, "exact": True},
+            {"kind": "dihedral", "atoms": [0, 1, 1, 2], "value": 10, "exact": True},
+            {"kind": "distance", "atoms": [0, 2], "value": 0, "exact": True},
+        ]:
+            self.assertRegex(refused([row]), r"^ORCA: its (distance|torsion) [\d-]+ is not a (distance|torsion) held exactly at a value\.$", row)
+        self.assertEqual(refused([{"kind": "angle", "atoms": [0, 1, 2], "value": 104, "exact": True}]), "ORCA: its restraints hold 'angle', which it holds none of.")
+        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 4], "value": 1.5, "exact": True}]), "ORCA: an atom its restraints hold is not one of its atoms.")
 
     def test_each_kind_its_run_solvation_memory_and_one_process_unsaid(self):
         energy = ask("prepare", step="energy", entries=[WATER], options={**defaults("energy"), "solvation": "CPCM", "solvent": "tetrahydrofuran", "maxcore": 3000})["jobs"][0]
