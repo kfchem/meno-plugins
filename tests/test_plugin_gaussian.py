@@ -297,11 +297,11 @@ class Steps(unittest.TestCase):
             return out["refused"][0]["why"]
 
         # (exact: ModRedundant freezes a coordinate where it stands, at no value given - never held there in its place)
-        self.assertEqual(refused([{"kind": "fixed", "atoms": [0]}, {"kind": "distance", "atoms": [0, 2], "value": 1.5, "exact": True}]), "Gaussian: it holds atoms fixed alone: Gaussian's ModRedundant input freezes a distance only where it stands, at no value it is given - distance 1-3.")
-        self.assertEqual(refused([{"kind": "dihedral", "atoms": [1, 0, 2, 1], "value": 60, "exact": True}], "saddle-point"), "Gaussian: it holds atoms fixed alone: Gaussian's ModRedundant input freezes a torsion only where it stands, at no value it is given - torsion 2-1-3-2.")
+        self.assertEqual(refused([{"kind": "fixed", "atoms": [0]}, {"kind": "distance", "atoms": [0, 2], "value": 1.5, "exact": True}]), "Gaussian: this plugin holds atoms fixed alone: Gaussian's ModRedundant input freezes a distance only where it stands, at no value it is given - distance 1-3.")
+        self.assertEqual(refused([{"kind": "dihedral", "atoms": [1, 0, 2, 1], "value": 60, "exact": True}], "saddle-point"), "Gaussian: this plugin holds atoms fixed alone: Gaussian's ModRedundant input freezes a torsion only where it stands, at no value it is given - torsion 2-1-3-2.")
         # (by a strength, a kind it does not know, an atom it has not)
-        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "strength": 500}]), "Gaussian: it holds atoms fixed alone, no distance by a strength: distance 1-3.")
-        self.assertEqual(refused([{"kind": "angle", "atoms": [0, 1, 2], "value": 104}]), "Gaussian: its restraints hold 'angle', which it holds none of: only atoms fixed.")
+        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "strength": 500}]), "Gaussian: this plugin holds atoms fixed alone, no distance by a strength: distance 1-3.")
+        self.assertEqual(refused([{"kind": "angle", "atoms": [0, 1, 2], "value": 104}]), "Gaussian: its restraints hold 'angle', which this plugin holds none of: only atoms fixed.")
         self.assertEqual(refused([{"kind": "fixed", "atoms": [3]}]), "Gaussian: an atom its restraints hold is not one of its atoms.")
         # (every one refused: the step refused as a whole, in its words)
         said = worker.answer(json.dumps({"id": 1, "op": "prepare", "step": "optimise", "entries": [{**ENTRY, "restraints": [{"kind": "fixed", "atoms": [5]}]}], "options": {**step_defaults("optimise"), "hold": "fixed"}}))

@@ -135,10 +135,10 @@ class Prepare(unittest.TestCase):
             return out["refused"][0]["why"]
 
         # (restrained, never held exactly in its place: ORCA holds none by a strength)
-        self.assertEqual(refused([{"kind": "fixed", "atoms": [0]}, {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": 180, "strength": 1}]), "ORCA: it holds a torsion only exactly, not by a strength: torsion 1-2-3-4 has a strength.")
-        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "strength": 500}]), "ORCA: it holds a distance only exactly, not by a strength: distance 1-3 has a strength.")
+        self.assertEqual(refused([{"kind": "fixed", "atoms": [0]}, {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": 180, "strength": 1}]), "ORCA: this plugin holds a torsion only exactly, not by a strength: torsion 1-2-3-4 has a strength.")
+        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "strength": 500}]), "ORCA: this plugin holds a distance only exactly, not by a strength: distance 1-3 has a strength.")
         # (exact, to a saddle point: atoms fixed alone there)
-        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "exact": True}], "saddle-point"), "ORCA: it holds no distance as it optimises to a saddle point, only atoms fixed: distance 1-3.")
+        self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "exact": True}], "saddle-point"), "ORCA: this plugin holds no distance in an optimisation to a saddle point, only atoms fixed: distance 1-3.")
         # (not a row as the entry record writes one: exact with a strength too, no value, its atoms not its kind's, an atom
         #  twice, a distance of none, a kind it does not know, an atom it has not)
         for row in [
@@ -152,7 +152,7 @@ class Prepare(unittest.TestCase):
             {"kind": "distance", "atoms": [0, 2], "value": 0, "exact": True},
         ]:
             self.assertRegex(refused([row]), r"^ORCA: its (distance|torsion) [\d-]+ is not a (distance|torsion) held exactly at a value\.$", row)
-        self.assertEqual(refused([{"kind": "angle", "atoms": [0, 1, 2], "value": 104, "exact": True}]), "ORCA: its restraints hold 'angle', which it holds none of.")
+        self.assertEqual(refused([{"kind": "angle", "atoms": [0, 1, 2], "value": 104, "exact": True}]), "ORCA: its restraints hold 'angle', which this plugin holds none of.")
         self.assertEqual(refused([{"kind": "distance", "atoms": [0, 4], "value": 1.5, "exact": True}]), "ORCA: an atom its restraints hold is not one of its atoms.")
 
     def test_each_kind_its_run_solvation_memory_and_one_process_unsaid(self):

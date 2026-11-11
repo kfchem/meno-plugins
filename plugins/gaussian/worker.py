@@ -333,11 +333,11 @@ def held(step, options, entry):
             continue
         what = {"distance": "distance", "dihedral": "torsion"}.get(kind)
         if what is None or not of:
-            raise Refused(f"its restraints hold {kind!r}, which it holds none of: only atoms fixed")
+            raise Refused(f"its restraints hold {kind!r}, which this plugin holds none of: only atoms fixed")
         said = f"{what} {'-'.join(str(a + 1) for a in of)}"
         if r.get("exact"):
-            raise Refused(f"it holds atoms fixed alone: Gaussian's ModRedundant input freezes a {what} only where it stands, at no value it is given - {said}")
-        raise Refused(f"it holds atoms fixed alone, no {what} by a strength: {said}")
+            raise Refused(f"this plugin holds atoms fixed alone: Gaussian's ModRedundant input freezes a {what} only where it stands, at no value it is given - {said}")
+        raise Refused(f"this plugin holds atoms fixed alone, no {what} by a strength: {said}")
     return [a + 1 for a in sorted(atoms)]
 
 

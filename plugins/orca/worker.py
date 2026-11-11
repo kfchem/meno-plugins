@@ -191,8 +191,8 @@ LOW_VIBRATIONS = {"none": "", "rrho": "%freq QuasiRRHO false end"}
 #: The restraints an optimisation holds as ORCA constrains them (%geom Constraints; ORCA 6.1 manual, 4.1, *Running
 #: Constrained Optimizations*): each exactly - a distance at its value, in angstroms ({B a b value C}), a dihedral at its
 #: value, in degrees ({D a b c d value C}), atoms fixed where they stand ({C a C}) - atoms from 0, as ORCA numbers them.
-#: ORCA holds none by a strength: a distance or a dihedral restrained (the entry record's `strength`) is refused, never
-#: held exactly in its place. Of an optimisation to a saddle point, atoms fixed alone, as before: the manual gives its
+#: The manual's constraints take no strength: a distance or a dihedral restrained (the entry record's `strength`) is
+#: refused, never held exactly in its place. Of an optimisation to a saddle point, atoms fixed alone, as before: the manual gives its
 #: constraints for an optimisation, and does not say that a distance or a dihedral is held under OptTS.
 EXACT = {"optimise": ("distance", "dihedral"), "saddle-point": ()}
 #: How many atoms each kind of restraint holds, and ORCA's letter for it.
@@ -229,13 +229,13 @@ def held(step, options, entry):
             fixed.update(atoms)
             continue
         if kind not in SHAPES:
-            raise Refused(f"its restraints hold {kind!r}, which it holds none of")
+            raise Refused(f"its restraints hold {kind!r}, which this plugin holds none of")
         what = "torsion" if kind == "dihedral" else kind
         said = f"{what} {'-'.join(str(a + 1) for a in atoms)}"
         if not r.get("exact") and r.get("strength") is not None:
-            raise Refused(f"it holds a {what} only exactly, not by a strength: {said} has a strength")
+            raise Refused(f"this plugin holds a {what} only exactly, not by a strength: {said} has a strength")
         if kind not in EXACT[step]:
-            raise Refused(f"it holds no {what} as it optimises to a saddle point, only atoms fixed: {said}")
+            raise Refused(f"this plugin holds no {what} in an optimisation to a saddle point, only atoms fixed: {said}")
         count, letter = SHAPES[kind]
         value = r.get("value")
         if not r.get("exact") or r.get("strength") is not None or len(atoms) != count or len(set(atoms)) != count or isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or (kind == "distance" and not value > 0):
