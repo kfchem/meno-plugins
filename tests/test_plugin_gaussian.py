@@ -303,6 +303,8 @@ class Steps(unittest.TestCase):
         self.assertEqual(refused([{"kind": "distance", "atoms": [0, 2], "value": 1.5, "strength": 500}]), "Gaussian: this plugin holds atoms fixed alone, no distance by a strength: distance 1-3.")
         self.assertEqual(refused([{"kind": "angle", "atoms": [0, 1, 2], "value": 104}]), "Gaussian: its restraints hold 'angle', which this plugin holds none of: only atoms fixed.")
         self.assertEqual(refused([{"kind": "fixed", "atoms": [3]}]), "Gaussian: an atom its restraints hold is not one of its atoms.")
+        # (a row of atoms fixed that names none: refused, never dropped unsaid)
+        self.assertEqual(refused([{"kind": "fixed", "atoms": [1]}, {"kind": "fixed", "atoms": []}]), "Gaussian: a row of atoms fixed names none.")
         # (every one refused: the step refused as a whole, in its words)
         said = worker.answer(json.dumps({"id": 1, "op": "prepare", "step": "optimise", "entries": [{**ENTRY, "restraints": [{"kind": "fixed", "atoms": [5]}]}], "options": {**step_defaults("optimise"), "hold": "fixed"}}))
         self.assertEqual(said["error"], "Gaussian: an atom its restraints hold is not one of its atoms.")

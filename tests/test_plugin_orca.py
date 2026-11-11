@@ -150,10 +150,16 @@ class Prepare(unittest.TestCase):
             {"kind": "distance", "atoms": [0, 1, 2], "value": 1.5, "exact": True},
             {"kind": "dihedral", "atoms": [0, 1, 1, 2], "value": 10, "exact": True},
             {"kind": "distance", "atoms": [0, 2], "value": 0, "exact": True},
+            {"kind": "distance", "atoms": [0, 0, 2], "value": 1.5, "exact": True},
+            {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": float("nan"), "exact": True},
+            {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": float("inf"), "exact": True},
+            {"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": float("-inf"), "exact": True},
         ]:
             self.assertRegex(refused([row]), r"^ORCA: its (distance|torsion) [\d-]+ is not a (distance|torsion) held exactly at a value\.$", row)
         self.assertEqual(refused([{"kind": "angle", "atoms": [0, 1, 2], "value": 104, "exact": True}]), "ORCA: its restraints hold 'angle', which this plugin holds none of.")
         self.assertEqual(refused([{"kind": "distance", "atoms": [0, 4], "value": 1.5, "exact": True}]), "ORCA: an atom its restraints hold is not one of its atoms.")
+        # (a row of atoms fixed that names none: refused, never dropped unsaid)
+        self.assertEqual(refused([{"kind": "fixed", "atoms": [1]}, {"kind": "fixed", "atoms": []}]), "ORCA: a row of atoms fixed names none.")
 
     def test_each_kind_its_run_solvation_memory_and_one_process_unsaid(self):
         energy = ask("prepare", step="energy", entries=[WATER], options={**defaults("energy"), "solvation": "CPCM", "solvent": "tetrahydrofuran", "maxcore": 3000})["jobs"][0]

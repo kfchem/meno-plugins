@@ -328,7 +328,9 @@ def held(step, options, entry):
         kind, of = r.get("kind"), r.get("atoms") or []
         if any(not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < n for a in of):
             raise Refused("an atom its restraints hold is not one of its atoms")
-        if kind == "fixed" and of:
+        if kind == "fixed":
+            if not of:
+                raise Refused("a row of atoms fixed names none")
             atoms.update(of)
             continue
         what = {"distance": "distance", "dihedral": "torsion"}.get(kind)
