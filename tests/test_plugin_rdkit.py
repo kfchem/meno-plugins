@@ -511,6 +511,53 @@ class HowManyTried(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, f"The draw asked for is to be {said}"):
                 self.worker.options_of({"count": 5, "draw": bad})
 
+    def test_threads_are_every_core_unless_asked_and_a_whole_number_from_0(self):
+        self.assertEqual(self.worker.options_of({"count": 5})["threads"], 0)
+        self.assertEqual(self.worker.options_of({"count": 5, "options": {"threads": 1}})["threads"], 1)
+        self.assertEqual(self.worker.options_of({"count": 5, "options": {"threads": self.worker.MOST_THREADS}})["threads"], self.worker.MOST_THREADS)
+        for bad, said in ((-1, "from 0 to"), (self.worker.MOST_THREADS + 1, "from 0 to"), (1.5, "a whole number"), ("2", "a whole number"), (True, "a whole number")):
+            with self.assertRaisesRegex(ValueError, f"Threads, at most is to be {said}"):
+                self.worker.options_of({"count": 5, "options": {"threads": bad}})
+
+    def test_gives_the_same_conformers_and_energies_whatever_the_threads(self):
+        # (the same seed, one thread or every core or some: frame for frame, energy for energy - RDKit seeds each
+        #  conformer by its place in the set, and optimises each alone, so no thread count moves any of them)
+        for smiles, field in (("CCCCC(=O)OC", "MMFF94"), ("CC(C)Cc1ccc(cc1)C(C)C(=O)O", "MMFF94"), ("C1CCCCCCC1", "UFF"), ("OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O", "MMFF94s")):
+            mb = self.worker.op_from_smiles({"smiles": smiles})["molblock"]
+            made = lambda threads: self.worker.op_conformers({"molblock": mb, "count": 24, "options": {"field": field, "threads": threads}})
+            one = made(1)
+            self.assertTrue(one["isomers"][0]["energies"])
+            for threads in (0, 2, 3):
+                self.assertEqual(made(threads), one, f"{smiles}, {field}, {threads} threads")
+        # (and unsaid is every core, as it was)
+        mb = self.worker.op_from_smiles({"smiles": "CCCCO"})["molblock"]
+        self.assertEqual(self.worker.op_conformers({"molblock": mb, "count": 8}), self.worker.op_conformers({"molblock": mb, "count": 8, "options": {"threads": 0}}))
+
+    def test_gives_every_call_its_threads(self):
+        # (the embedding and each optimisation: MMFF, UFF, and UFF with metals held - none left at every core)
+        from unittest import mock
+        from rdkit.Chem import rdForceFieldHelpers
+        seen = []
+
+        def spy(owner, name, read):
+            real = getattr(owner, name)
+
+            def call(*a, **k):
+                seen.append((name, read(a, k)))
+                return real(*a, **k)
+
+            return mock.patch.object(owner, name, call)
+
+        embedded = lambda a, k: k["params"].numThreads
+        threads = lambda a, k: k["numThreads"]
+        with spy(self.worker.rdDistGeom, "EmbedMultipleConfs", embedded), spy(rdForceFieldHelpers, "MMFFOptimizeMoleculeConfs", threads), \
+                spy(rdForceFieldHelpers, "UFFOptimizeMoleculeConfs", threads), spy(rdForceFieldHelpers, "OptimizeMoleculeConfs", threads):
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=3, threads=3)
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=3, field="UFF", threads=3)
+            self.worker.op_conformers({**held(EtaBound.ferrocene()), "count": 3, "options": {"threads": 3}})
+        self.assertEqual({name for name, _ in seen}, {"EmbedMultipleConfs", "MMFFOptimizeMoleculeConfs", "UFFOptimizeMoleculeConfs", "OptimizeMoleculeConfs"})
+        self.assertEqual({n for _, n in seen}, {3})
+
     def test_makes_none_where_it_is_sent_no_number(self):
         with self.assertRaisesRegex(ValueError, "How many conformers to try was not given"):
             self.worker.op_conformers({**held(self.worker.op_from_smiles({"smiles": "CCO"})["molblock"])})
