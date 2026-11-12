@@ -10,9 +10,35 @@ as ForceField.Minimize answers - not converged (0 or 1) and its energy - with
 the places it ended at. The same chunk gives the same answer here and in a
 process of its own: nothing of the process is used but the molecule."""
 
+import os
+import threading
+import time
+
 from rdkit import Chem
 from rdkit.Chem import rdForceFieldHelpers
 from rdkit.Geometry import Point3D
+
+
+def watch(parent):
+    """As a process of the pool starts: ended as soon as `parent` - the worker that started it - is gone, however it
+    went: the worker stopped by Meno, killed, has no time to end its processes itself. On Windows, by waiting on the
+    parent itself; elsewhere, by its being taken over by another (its parent's id no longer the worker's)."""
+    if os.name == "nt":
+        import _winapi
+
+        handle = _winapi.OpenProcess(0x00100000, False, parent)  # (SYNCHRONIZE: it may be waited on, and nothing else)
+
+        def wait():
+            _winapi.WaitForSingleObject(handle, _winapi.INFINITE)
+            os._exit(0)
+    else:
+
+        def wait():
+            while os.getppid() == parent:
+                time.sleep(0.25)
+            os._exit(0)
+
+    threading.Thread(target=wait, daemon=True).start()
 
 
 def tightened(chunk):

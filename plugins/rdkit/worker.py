@@ -1308,7 +1308,8 @@ def tight_pool(n):
         windowless = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
         if os.name == "nt" and os.path.isfile(windowless):
             context.set_executable(windowless)
-        _pool["pool"] = ProcessPoolExecutor(max_workers=n, mp_context=context)
+        # (each ended once the worker is gone, however it went: mmff_tight `watch`)
+        _pool["pool"] = ProcessPoolExecutor(max_workers=n, mp_context=context, initializer=mmff_child.watch, initargs=(os.getpid(),))
         _pool["size"] = n
     return _pool["pool"]
 

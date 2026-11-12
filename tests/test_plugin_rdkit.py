@@ -601,7 +601,9 @@ class HowManyTried(unittest.TestCase):
             self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST, threads=3)
             self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST)
             self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST - 1, threads=3)
-        self.assertEqual(pools, [3, min(os.cpu_count(), self.worker.MOST_THREADS)])
+        # (every core where none is asked - as many as the rule allows, and none where that is one)
+        cores = min(os.cpu_count() or 1, self.worker.MOST_THREADS, 61 if os.name == "nt" else self.worker.MOST_THREADS)
+        self.assertEqual(pools, [3] + ([cores] if cores > 1 else []))
 
     def test_gives_the_same_conformers_on_one_thread_as_on_several(self):
         # (the second pass in processes of their own answers as it does here: every frame and energy alike)
@@ -670,6 +672,119 @@ class HowManyTried(unittest.TestCase):
         self.assertEqual(self.worker.MOST_CONFORMERS, 5000)
         for n in (501, 1000, 5000):
             self.assertEqual(self.worker.options_of({"count": n})["count"], n)
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
+class SecondPassInProcesses(unittest.TestCase):
+    """The second MMFF pass in processes of their own (worker `mmff_tight`, `tight_pool`): as Meno runs the worker - a
+    line in, a line out, nothing else written, gone when its input ends or it is killed, its processes with it - and
+    done here where they cannot be had, the same answer either way."""
+
+    SMILES = "COc1ccc(COC(C)C)cc1"
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def run_worker(self):
+        import subprocess, sys
+        import json
+        ran = subprocess.Popen([sys.executable, "-u", "-B", str(WORKER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=WORKER.parent)
+        # (its first line says it is ready, as Meno waits for)
+        self.assertEqual(json.loads(ran.stdout.readline())["event"], "ready")
+        return ran
+
+    def ask(self, ran, count):
+        import json
+        molblock = self.worker.op_from_smiles({"smiles": self.SMILES})["molblock"]
+        ran.stdin.write(json.dumps({"id": 7, "op": "conformers", "molblock": molblock, "count": count, "options": {"threads": 3}}) + "\n")
+        ran.stdin.flush()
+        return json.loads(ran.stdout.readline())
+
+    def children(self, pid):
+        import subprocess
+        found = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True).stdout.split()
+        return [int(p) for p in found]
+
+    def gone(self, pids, within=30):
+        deadline = time.time() + within
+        while time.time() < deadline:
+            left = []
+            for p in pids:
+                try:
+                    os.kill(p, 0)
+                    left.append(p)
+                except OSError:
+                    pass
+            if not left:
+                return True
+            time.sleep(0.2)
+        return False
+
+    def test_answers_one_line_writes_nothing_else_and_ends_with_its_input_its_processes_with_it(self):
+        ran = self.run_worker()
+        try:
+            answer = self.ask(ran, self.worker.POOL_LEAST + 8)
+            self.assertEqual((answer["id"], answer["ok"]), (7, True), answer)
+            self.assertEqual(len(answer["result"]["isomers"][0]["frames"]), self.worker.POOL_LEAST + 8)
+            # (the same answer as the worker gives here, in no process of its own)
+            here = self.worker.op_conformers({"molblock": self.worker.op_from_smiles({"smiles": self.SMILES})["molblock"], "count": self.worker.POOL_LEAST + 8, "options": {"threads": 1}})
+            self.assertEqual(answer["result"]["isomers"][0]["frames"], here["isomers"][0]["frames"])
+            started = self.children(ran.pid) if os.name != "nt" else []
+            if os.name != "nt":
+                self.assertTrue(started, "the second pass ran in no process of its own")
+            ran.stdin.close()
+            self.assertEqual(ran.wait(timeout=60), 0)
+            self.assertEqual(ran.stdout.read(), "")
+            self.assertTrue(self.gone(started))
+        finally:
+            if ran.poll() is None:
+                ran.kill()
+
+    @unittest.skipIf(os.name == "nt", "the processes it started are found by pgrep")
+    def test_its_processes_end_when_it_is_killed(self):
+        import signal
+        ran = self.run_worker()
+        try:
+            self.assertTrue(self.ask(ran, self.worker.POOL_LEAST + 8)["ok"])
+            started = self.children(ran.pid)
+            self.assertTrue(started)
+            os.kill(ran.pid, signal.SIGKILL)
+            ran.wait(timeout=30)
+            self.assertTrue(self.gone(started))
+        finally:
+            if ran.poll() is None:
+                ran.kill()
+
+    def test_does_it_here_where_its_processes_cannot_be_had_the_same_answer(self):
+        from unittest import mock
+        from concurrent.futures.process import BrokenProcessPool
+        mol = Chem.MolFromSmiles(self.SMILES)
+        here = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=1)
+        for failure in (BrokenProcessPool("gone"), OSError("no processes")):
+            def broken(n, failure=failure):
+                self.worker._pool["pool"], self.worker._pool["size"] = object(), n
+                raise failure
+            with mock.patch.object(self.worker, "tight_pool", broken):
+                made = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=3)
+            self.assertEqual((made["frames"], made["energies"]), (here["frames"], here["energies"]))
+            self.assertEqual((self.worker._pool["pool"], self.worker._pool["size"]), (None, 0))
+
+    def test_keeps_its_processes_while_as_many_are_asked_and_starts_others_for_another_number(self):
+        two = self.worker.tight_pool(2)
+        try:
+            self.assertIs(self.worker.tight_pool(2), two)
+            three = self.worker.tight_pool(3)
+            self.assertIsNot(three, two)
+            self.assertIs(self.worker.tight_pool(3), three)
+            # (those for two let go: nothing more is taken by them)
+            with self.assertRaises(RuntimeError):
+                two.submit(abs, -1)
+        finally:
+            self.worker._pool["pool"].shutdown(wait=True)
+            self.worker._pool["pool"], self.worker._pool["size"] = None, 0
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
