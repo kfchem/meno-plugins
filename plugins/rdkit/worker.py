@@ -35,6 +35,7 @@ import re
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from rdkit import Chem, RDLogger, rdBase
 from rdkit.Geometry import Point3D
@@ -429,6 +430,12 @@ SEED = 0x4D45
 # seeded as another's are, whichever way RDKit seeds each conformer from the seed
 DRAW_STRIDE = 1_000_003
 STEPS = 2000
+#: How far a conformer search optimises each conformer in MMFF: on from where RDKit's own optimisation of them all stops
+#: (MMFFOptimizeMoleculeConfs: a gradient of 1e-4 and an energy change of 1e-6), to a gradient of FORCE_TOL and an
+#: energy change of ENERGY_TOL - so that a minimum reached twice is reached within Meno's same conformer (an all-atom
+#: RMSD of 0.01 A over its symmetries), and two minima are not taken for one (the maintainer's ruling, 2026-11-13).
+FORCE_TOL = 1e-6
+ENERGY_TOL = 1e-12
 #: How many threads a conformer search may use, unless asked: 0, as RDKit takes it, is every core. At most MOST_THREADS.
 THREADS = 0
 MOST_THREADS = 1024
@@ -1273,6 +1280,24 @@ def method_of(mol, ids, field, stood_in, metals, holds):
     return made + ("; restrained: " + ", ".join(held) if held else "")
 
 
+def mmff_tight(mol, ids, field, iters, threads=THREADS):
+    """Each conformer of `mol` optimised in MMFF (`field`, MMFF94 or MMFF94s) to FORCE_TOL and ENERGY_TOL: all of them
+    as RDKit optimises them at once, on as many threads as it may use, at most `iters` steps; then each on from there,
+    at most `iters` steps more, in as many threads. As MMFFOptimizeMoleculeConfs answers: (not converged, energy) each,
+    in the order of `ids`."""
+    rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters, mmffVariant=field)
+    props = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant=field)
+
+    def on(cid):
+        # (the force field works on the conformer's own places: they are left where it ends)
+        ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, props, confId=cid)
+        more = ff.Minimize(maxIts=iters, forceTol=FORCE_TOL, energyTol=ENERGY_TOL)
+        return more, ff.CalcEnergy()
+
+    with ThreadPoolExecutor(max_workers=threads or os.cpu_count() or 1) as pool:
+        return list(pool.map(on, ids))
+
+
 def conformers_of(iso, how, made):
     """A stereoisomer's conformers, as RDKit makes them (`conformers`): each
     stereoisomer made itself, an enantiomer as much as any. `made` keeps
@@ -1354,7 +1379,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
         stood_in, results = False, []
         for cid in ids:
             ff = make(cid, rows)
-            more = ff.Minimize(maxIts=iters)
+            more = ff.Minimize(maxIts=iters, forceTol=FORCE_TOL, energyTol=ENERGY_TOL) if field.startswith("MMFF") else ff.Minimize(maxIts=iters)
             places = list(ff.Positions())
             conf = mol.GetConformer(cid)
             for i in range(mol.GetNumAtoms()):
@@ -1369,7 +1394,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
         untyped = sorted({el for el, digit in metals if digit is None and el in stand_in})
     elif field in ("MMFF94", "MMFF94s") and rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
         stood_in = False
-        results = rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters, mmffVariant=field)
+        results = mmff_tight(mol, ids, field, iters, threads)
     elif not untyped and rdForceFieldHelpers.UFFHasAllMoleculeParams(mol):
         field, stood_in = "UFF", False
         results = uff_with_metals(mol, ids, holds, iters, threads=threads) if metals and holds else rdForceFieldHelpers.UFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters)
@@ -1420,7 +1445,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
         "how": [
             {"label": "Embedded", "text": "ETKDG v3" + (", from random coordinates" if randomly else "")},
             {"label": "Random seed", "text": f"{seed}"},
-            *([{"label": "Optimised", "text": f"{field}, at most {iters} steps"}] if field else [
+            *([{"label": "Optimised", "text": f"{field}, at most {iters} steps" + ((f", to a gradient of {FORCE_TOL:g}" if rows else f" and {iters} more to a gradient of {FORCE_TOL:g}") if field.startswith("MMFF") else "")}] if field else [
                 {"label": "Optimised", "text": f"UFF, at most {iters} steps"
                  + "".join(f", {stand_in[el]} standing in for {el}" for el in untyped)} if stood_in else
                 {"label": "Optimised", "text": "not: no force field here has parameters for " + " or ".join(untyped or ["it"])},

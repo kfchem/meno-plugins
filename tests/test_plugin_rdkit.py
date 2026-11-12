@@ -248,7 +248,8 @@ class AWorkflowsSearch(unittest.TestCase):
         spec.loader.exec_module(cls.worker)
 
     def test_gives_rdkits_own_conformers_frame_for_frame(self):
-        # (the known answer, RDKit's own: ETKDG v3 at the worker's seed, MMFF94 optimisation, in the order embedded)
+        # (the known answer, RDKit's own: ETKDG v3 at the worker's seed, MMFF94 optimisation - all at once, then each on
+        #  to the worker's tolerances - in the order embedded)
         from rdkit.Chem import rdForceFieldHelpers
         mol = Chem.MolFromSmiles("C[C@H](O)CC")
         made = self.worker.conformers(mol, count=12)
@@ -258,12 +259,47 @@ class AWorkflowsSearch(unittest.TestCase):
         params.pruneRmsThresh = -1.0
         params.numThreads = 0
         ids = list(rdDistGeom.EmbedMultipleConfs(raw, numConfs=12, params=params))
-        energy = {cid: e for cid, (_, e) in zip(ids, rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(raw, numThreads=0, maxIters=self.worker.STEPS, mmffVariant="MMFF94"))}
+        rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(raw, numThreads=0, maxIters=self.worker.STEPS, mmffVariant="MMFF94")
+        props = rdForceFieldHelpers.MMFFGetMoleculeProperties(raw)
+        energy = {}
+        for cid in ids:
+            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(raw, props, confId=cid)
+            ff.Minimize(maxIts=self.worker.STEPS, forceTol=1e-6, energyTol=1e-12)
+            energy[cid] = ff.CalcEnergy()
         self.assertEqual(made["frames"], [[round(v, 4) for p in raw.GetConformer(c).GetPositions() for v in p] for c in ids])
         for got, cid in zip(made["energies"], ids):
             self.assertAlmostEqual(got, energy[cid] / self.worker.KCAL_PER_HARTREE, places=9)
         rows = {r["label"]: r["text"] for r in made["how"]}
         self.assertEqual(rows["Kept"], "12 of 12 embedded (12 sought)")
+        self.assertEqual(rows["Optimised"], "MMFF94, at most 2000 steps and 2000 more to a gradient of 1e-06")
+
+    def test_optimises_each_conformer_as_far_as_its_tolerances_so_that_optimising_again_moves_none(self):
+        # (MMFF94 on to a gradient of 1e-6: optimised again to the same, no atom of any conformer moves 1e-4 A - where RDKit's
+        #  own stopping point, 1e-4, leaves some to move on)
+        from rdkit.Chem import rdForceFieldHelpers
+        self.assertEqual((self.worker.FORCE_TOL, self.worker.ENERGY_TOL), (1e-6, 1e-12))
+        mol = Chem.AddHs(Chem.MolFromSmiles("COc1ccc(COC(C)C(C)CC)cc1"))
+        params = rdDistGeom.ETKDGv3()
+        params.randomSeed = self.worker.SEED
+        params.pruneRmsThresh = -1.0
+        ids = list(rdDistGeom.EmbedMultipleConfs(mol, numConfs=8, params=params))
+        loose = Chem.Mol(mol)
+        rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(loose, numThreads=0, maxIters=self.worker.STEPS)
+        done = self.worker.mmff_tight(mol, ids, "MMFF94", self.worker.STEPS, 2)
+        self.assertEqual([more for more, _ in done], [0] * len(ids))
+
+        def moved_on(m, cid):
+            props = rdForceFieldHelpers.MMFFGetMoleculeProperties(m)
+            before = m.GetConformer(cid).GetPositions()
+            # (a copy, kept while its force field works on its places: the force field holds none of its own)
+            copy = Chem.Mol(m)
+            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(copy, props, confId=cid)
+            ff.Minimize(maxIts=self.worker.STEPS, forceTol=1e-6, energyTol=1e-12)
+            after = ff.Positions()
+            return max(abs(after[k] - before.flat[k]) for k in range(len(after)))
+
+        self.assertLess(max(moved_on(mol, cid) for cid in ids), 1e-4)
+        self.assertGreater(max(moved_on(loose, cid) for cid in ids), 1e-4)
 
     def test_makes_each_enantiomer_itself_whatever_else_it_is_sent(self):
         # (butan-2-ol's two enantiomers: what the page once sent to have one made as the other's mirror image, in the
@@ -557,6 +593,13 @@ class HowManyTried(unittest.TestCase):
             self.worker.op_conformers({**held(EtaBound.ferrocene()), "count": 3, "options": {"threads": 3}})
         self.assertEqual({name for name, _ in seen}, {"EmbedMultipleConfs", "MMFFOptimizeMoleculeConfs", "UFFOptimizeMoleculeConfs", "OptimizeMoleculeConfs"})
         self.assertEqual({n for _, n in seen}, {3})
+        # (and each conformer's optimisation on to the worker's tolerances, in as many threads)
+        pools = []
+        real = self.worker.ThreadPoolExecutor
+        with mock.patch.object(self.worker, "ThreadPoolExecutor", lambda max_workers: pools.append(max_workers) or real(max_workers=max_workers)):
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=3, threads=3)
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=3)
+        self.assertEqual(pools, [3, os.cpu_count()])
 
     def test_gives_its_threads_to_a_metal_held_in_uff_and_to_one_that_stands_in(self):
         # (the two other places the optimising of a molecule with metals is asked for: a palladacycle, whose metal UFF types,
