@@ -35,7 +35,16 @@ import re
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+
+# (the plugin's own folder, where mmff_tight.py is - on the path as it is when the worker runs as a script, and so in the
+#  processes it starts)
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import mmff_tight as mmff_child  # noqa: E402
 
 from rdkit import Chem, RDLogger, rdBase
 from rdkit.Geometry import Point3D
@@ -1280,22 +1289,59 @@ def method_of(mol, ids, field, stood_in, metals, holds):
     return made + ("; restrained: " + ", ".join(held) if held else "")
 
 
+#: Fewer conformers than this are optimised on here, not in processes of their own: starting them would take longer.
+POOL_LEAST = 32
+#: How many chunks each process is given in a round, about: so that one slow chunk does not hold the rest back.
+CHUNKS_EACH = 4
+# (the processes the second pass runs in, kept while the worker runs: started once, as many as asked)
+_pool = {"size": 0, "pool": None}
+
+
+def tight_pool(n):
+    """Processes of their own, `n` of them, for `mmff_tight`'s second pass: the same ones while `n` is the same."""
+    if _pool["pool"] is None or _pool["size"] != n:
+        if _pool["pool"] is not None:
+            _pool["pool"].shutdown(wait=False, cancel_futures=True)
+        context = multiprocessing.get_context("spawn")
+        # (on Windows, the worker has no console, and a process of Python's own would open one of its own: Python's windowless
+        #  one where it is beside it)
+        windowless = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if os.name == "nt" and os.path.isfile(windowless):
+            context.set_executable(windowless)
+        _pool["pool"] = ProcessPoolExecutor(max_workers=n, mp_context=context)
+        _pool["size"] = n
+    return _pool["pool"]
+
+
 def mmff_tight(mol, ids, field, iters, threads=THREADS):
     """Each conformer of `mol` optimised in MMFF (`field`, MMFF94 or MMFF94s) to FORCE_TOL and ENERGY_TOL: all of them
     as RDKit optimises them at once, on as many threads as it may use, at most `iters` steps; then each on from there,
-    at most `iters` steps more, in as many threads. As MMFFOptimizeMoleculeConfs answers: (not converged, energy) each,
-    in the order of `ids`."""
+    at most `iters` steps more (mmff_tight.py) - in as many processes of their own, where there are many: its
+    ForceField.Minimize holds Python's lock, so threads would take turns. Each conformer is optimised alike, here or
+    in a process: the answer is the same. As MMFFOptimizeMoleculeConfs answers: (not converged, energy) each, in the
+    order of `ids`, the places where they ended."""
     rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters, mmffVariant=field)
-    props = rdForceFieldHelpers.MMFFGetMoleculeProperties(mol, mmffVariant=field)
-
-    def on(cid):
-        # (the force field works on the conformer's own places: they are left where it ends)
-        ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(mol, props, confId=cid)
-        more = ff.Minimize(maxIts=iters, forceTol=FORCE_TOL, energyTol=ENERGY_TOL)
-        return more, ff.CalcEnergy()
-
-    with ThreadPoolExecutor(max_workers=threads or os.cpu_count() or 1) as pool:
-        return list(pool.map(on, ids))
+    binary = Chem.Mol(mol, confId=ids[0]).ToBinary()
+    places = [mol.GetConformer(cid).GetPositions().flatten().tolist() for cid in ids]
+    # (as many processes as threads it may use - on Windows 61 at most, as many as Python's pool there takes)
+    n = min(threads or os.cpu_count() or 1, MOST_THREADS, 61 if os.name == "nt" else MOST_THREADS)
+    asked = lambda part: (binary, field, iters, FORCE_TOL, ENERGY_TOL, part)
+    done = None
+    if n > 1 and len(ids) >= POOL_LEAST:
+        size = max(1, -(-len(places) // (n * CHUNKS_EACH)))
+        chunks = [places[k : k + size] for k in range(0, len(places), size)]
+        try:
+            done = [r for part in tight_pool(n).map(mmff_child.tightened, map(asked, chunks)) for r in part]
+        except (BrokenProcessPool, OSError):
+            # (processes that could not be started, or died: done here, as they would have done it)
+            _pool["pool"], _pool["size"] = None, 0
+    if done is None:
+        done = mmff_child.tightened(asked(places))
+    for cid, (_, _, xyz) in zip(ids, done):
+        conf = mol.GetConformer(cid)
+        for i in range(mol.GetNumAtoms()):
+            conf.SetAtomPosition(i, Point3D(xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]))
+    return [(more, energy) for more, energy, _ in done]
 
 
 def conformers_of(iso, how, made):

@@ -593,13 +593,23 @@ class HowManyTried(unittest.TestCase):
             self.worker.op_conformers({**held(EtaBound.ferrocene()), "count": 3, "options": {"threads": 3}})
         self.assertEqual({name for name, _ in seen}, {"EmbedMultipleConfs", "MMFFOptimizeMoleculeConfs", "UFFOptimizeMoleculeConfs", "OptimizeMoleculeConfs"})
         self.assertEqual({n for _, n in seen}, {3})
-        # (and each conformer's optimisation on to the worker's tolerances, in as many threads)
+        # (and each conformer's optimisation on to the worker's tolerances, in as many processes - where there are enough
+        #  conformers to be worth starting them; fewer, here)
         pools = []
-        real = self.worker.ThreadPoolExecutor
-        with mock.patch.object(self.worker, "ThreadPoolExecutor", lambda max_workers: pools.append(max_workers) or real(max_workers=max_workers)):
-            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=3, threads=3)
-            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=3)
-        self.assertEqual(pools, [3, os.cpu_count()])
+        real = self.worker.tight_pool
+        with mock.patch.object(self.worker, "tight_pool", lambda n: pools.append(n) or real(n)):
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST, threads=3)
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST)
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST - 1, threads=3)
+        self.assertEqual(pools, [3, min(os.cpu_count(), self.worker.MOST_THREADS)])
+
+    def test_gives_the_same_conformers_on_one_thread_as_on_several(self):
+        # (the second pass in processes of their own answers as it does here: every frame and energy alike)
+        mol = Chem.MolFromSmiles("COc1ccc(COC(C)C)cc1")
+        one = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=1)
+        four = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=4)
+        self.assertEqual(one["frames"], four["frames"])
+        self.assertEqual(one["energies"], four["energies"])
 
     def test_gives_its_threads_to_a_metal_held_in_uff_and_to_one_that_stands_in(self):
         # (the two other places the optimising of a molecule with metals is asked for: a palladacycle, whose metal UFF types,
@@ -1803,6 +1813,37 @@ class MinimiseWithRestraints(unittest.TestCase):
                 self.worker.conformers(Chem.MolFromSmiles("CCCC"), count=2, rows=[{"kind": "fixed", "atoms": [0]}])
             with self.assertRaisesRegex(ValueError, r"^A conformer search holds restraints only where the molecule has no metal"):
                 self.worker.conformers(Chem.MolFromSmiles("N[Pt](N)(Cl)Cl"), count=2, rows=rows)
+
+    def test_a_search_holding_restraints_optimises_each_to_the_same_tolerances_and_says_so(self):
+        # (butane's C-C-C-C held at 60 degrees by a strength: each conformer optimised, its restraint held, to a gradient of
+        #  1e-6 - every one converged within its steps - and its row saying it)
+        from unittest import mock
+        asked = []
+        real = self.worker.restrained_field
+
+        class Watched:
+            def __init__(self, ff):
+                self.ff = ff
+
+            def Minimize(self, **k):
+                more = self.ff.Minimize(**k)
+                asked.append((k, more))
+                return more
+
+            def __getattr__(self, name):
+                return getattr(self.ff, name)
+
+        def watched(*a, **k):
+            field, make = real(*a, **k)
+            return field, lambda cid, rows: Watched(make(cid, rows))
+
+        rows = [{"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": 60.0, "strength": 50.0}]
+        with mock.patch.object(self.worker, "restrained_field", watched):
+            made = self.worker.conformers(Chem.MolFromSmiles("CCCC"), count=6, rows=rows)
+        self.assertEqual({r["label"]: r["text"] for r in made["how"]}["Optimised"], "MMFF94, at most 2000 steps, to a gradient of 1e-06")
+        self.assertEqual(len(asked), 6)
+        self.assertEqual({(k["forceTol"], k["energyTol"], k["maxIts"]) for k, _ in asked}, {(1e-6, 1e-12, 2000)})
+        self.assertEqual([more for _, more in asked], [0] * 6)
 
     def test_a_search_embeds_a_distance_held_at_its_value(self):
         # (pyridine's N and BH3's B, two parts, held at 0.9 of Alvarez's radii together, 3.21 A: laid where ETKDG

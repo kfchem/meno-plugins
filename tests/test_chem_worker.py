@@ -271,7 +271,7 @@ class ChemWorkerTest(unittest.TestCase):
         how = {r["label"]: r["text"] for r in made["how"]}
         self.assertEqual(how["Embedded"], "ETKDG v3")
         self.assertEqual(how["Random seed"], "7")
-        self.assertEqual(how["Optimised"], "MMFF94s, at most 300 steps")
+        self.assertEqual(how["Optimised"], "MMFF94s, at most 300 steps and 300 more to a gradient of 1e-06")
         self.assertEqual(how["Kept"], "5 of 5 embedded (5 sought)")
         self.assertTrue(how["Made by"].startswith("RDKit "))
         self.assertEqual(len(made["frames"]), 5)
