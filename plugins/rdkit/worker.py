@@ -35,6 +35,16 @@ import re
 import os
 import sys
 import time
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+
+# (the plugin's own folder, where mmff_tight.py is - on the path as it is when the worker runs as a script, and so in the
+#  processes it starts)
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import mmff_tight as mmff_child  # noqa: E402
 
 from rdkit import Chem, RDLogger, rdBase
 from rdkit.Geometry import Point3D
@@ -429,6 +439,12 @@ SEED = 0x4D45
 # seeded as another's are, whichever way RDKit seeds each conformer from the seed
 DRAW_STRIDE = 1_000_003
 STEPS = 2000
+#: How far a conformer search optimises each conformer in MMFF: on from where RDKit's own optimisation of them all stops
+#: (MMFFOptimizeMoleculeConfs: a gradient of 1e-4 and an energy change of 1e-6), to a gradient of FORCE_TOL and an
+#: energy change of ENERGY_TOL - so that a minimum reached twice is reached within Meno's same conformer (an all-atom
+#: RMSD of 0.01 A over its symmetries), and two minima are not taken for one (the maintainer's ruling, 2026-11-13).
+FORCE_TOL = 1e-6
+ENERGY_TOL = 1e-12
 #: How many threads a conformer search may use, unless asked: 0, as RDKit takes it, is every core. At most MOST_THREADS.
 THREADS = 0
 MOST_THREADS = 1024
@@ -1273,6 +1289,62 @@ def method_of(mol, ids, field, stood_in, metals, holds):
     return made + ("; restrained: " + ", ".join(held) if held else "")
 
 
+#: Fewer conformers than this are optimised on here, not in processes of their own: starting them would take longer.
+POOL_LEAST = 32
+#: How many chunks each process is given in a round, about: so that one slow chunk does not hold the rest back.
+CHUNKS_EACH = 4
+# (the processes the second pass runs in, kept while the worker runs: started once, as many as asked)
+_pool = {"size": 0, "pool": None}
+
+
+def tight_pool(n):
+    """Processes of their own, `n` of them, for `mmff_tight`'s second pass: the same ones while `n` is the same."""
+    if _pool["pool"] is None or _pool["size"] != n:
+        if _pool["pool"] is not None:
+            _pool["pool"].shutdown(wait=False, cancel_futures=True)
+        context = multiprocessing.get_context("spawn")
+        # (on Windows, the worker has no console, and a process of Python's own would open one of its own: Python's windowless
+        #  one where it is beside it)
+        windowless = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if os.name == "nt" and os.path.isfile(windowless):
+            context.set_executable(windowless)
+        # (each ended once the worker is gone, however it went: mmff_tight `watch`)
+        _pool["pool"] = ProcessPoolExecutor(max_workers=n, mp_context=context, initializer=mmff_child.watch, initargs=(os.getpid(),))
+        _pool["size"] = n
+    return _pool["pool"]
+
+
+def mmff_tight(mol, ids, field, iters, threads=THREADS):
+    """Each conformer of `mol` optimised in MMFF (`field`, MMFF94 or MMFF94s) to FORCE_TOL and ENERGY_TOL: all of them
+    as RDKit optimises them at once, on as many threads as it may use, at most `iters` steps; then each on from there,
+    at most `iters` steps more (mmff_tight.py) - in as many processes of their own, where there are many: its
+    ForceField.Minimize holds Python's lock, so threads would take turns. Each conformer is optimised alike, here or
+    in a process: the answer is the same. As MMFFOptimizeMoleculeConfs answers: (not converged, energy) each, in the
+    order of `ids`, the places where they ended."""
+    rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters, mmffVariant=field)
+    binary = Chem.Mol(mol, confId=ids[0]).ToBinary()
+    places = [mol.GetConformer(cid).GetPositions().flatten().tolist() for cid in ids]
+    # (as many processes as threads it may use - on Windows 61 at most, as many as Python's pool there takes)
+    n = min(threads or os.cpu_count() or 1, MOST_THREADS, 61 if os.name == "nt" else MOST_THREADS)
+    asked = lambda part: (binary, field, iters, FORCE_TOL, ENERGY_TOL, part)
+    done = None
+    if n > 1 and len(ids) >= POOL_LEAST:
+        size = max(1, -(-len(places) // (n * CHUNKS_EACH)))
+        chunks = [places[k : k + size] for k in range(0, len(places), size)]
+        try:
+            done = [r for part in tight_pool(n).map(mmff_child.tightened, map(asked, chunks)) for r in part]
+        except (BrokenProcessPool, OSError):
+            # (processes that could not be started, or died: done here, as they would have done it)
+            _pool["pool"], _pool["size"] = None, 0
+    if done is None:
+        done = mmff_child.tightened(asked(places))
+    for cid, (_, _, xyz) in zip(ids, done):
+        conf = mol.GetConformer(cid)
+        for i in range(mol.GetNumAtoms()):
+            conf.SetAtomPosition(i, Point3D(xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]))
+    return [(more, energy) for more, energy, _ in done]
+
+
 def conformers_of(iso, how, made):
     """A stereoisomer's conformers, as RDKit makes them (`conformers`): each
     stereoisomer made itself, an enantiomer as much as any. `made` keeps
@@ -1354,7 +1426,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
         stood_in, results = False, []
         for cid in ids:
             ff = make(cid, rows)
-            more = ff.Minimize(maxIts=iters)
+            more = ff.Minimize(maxIts=iters, forceTol=FORCE_TOL, energyTol=ENERGY_TOL) if field.startswith("MMFF") else ff.Minimize(maxIts=iters)
             places = list(ff.Positions())
             conf = mol.GetConformer(cid)
             for i in range(mol.GetNumAtoms()):
@@ -1369,7 +1441,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
         untyped = sorted({el for el, digit in metals if digit is None and el in stand_in})
     elif field in ("MMFF94", "MMFF94s") and rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
         stood_in = False
-        results = rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters, mmffVariant=field)
+        results = mmff_tight(mol, ids, field, iters, threads)
     elif not untyped and rdForceFieldHelpers.UFFHasAllMoleculeParams(mol):
         field, stood_in = "UFF", False
         results = uff_with_metals(mol, ids, holds, iters, threads=threads) if metals and holds else rdForceFieldHelpers.UFFOptimizeMoleculeConfs(mol, numThreads=threads, maxIters=iters)
@@ -1420,7 +1492,7 @@ def conformers(mol, count=None, seed=SEED, field="MMFF94", iters=STEPS, rows=(),
         "how": [
             {"label": "Embedded", "text": "ETKDG v3" + (", from random coordinates" if randomly else "")},
             {"label": "Random seed", "text": f"{seed}"},
-            *([{"label": "Optimised", "text": f"{field}, at most {iters} steps"}] if field else [
+            *([{"label": "Optimised", "text": f"{field}, at most {iters} steps" + ((f", to a gradient of {FORCE_TOL:g}" if rows else f" and {iters} more to a gradient of {FORCE_TOL:g}") if field.startswith("MMFF") else "")}] if field else [
                 {"label": "Optimised", "text": f"UFF, at most {iters} steps"
                  + "".join(f", {stand_in[el]} standing in for {el}" for el in untyped)} if stood_in else
                 {"label": "Optimised", "text": "not: no force field here has parameters for " + " or ".join(untyped or ["it"])},

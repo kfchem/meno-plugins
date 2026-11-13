@@ -248,7 +248,8 @@ class AWorkflowsSearch(unittest.TestCase):
         spec.loader.exec_module(cls.worker)
 
     def test_gives_rdkits_own_conformers_frame_for_frame(self):
-        # (the known answer, RDKit's own: ETKDG v3 at the worker's seed, MMFF94 optimisation, in the order embedded)
+        # (the known answer, RDKit's own: ETKDG v3 at the worker's seed, MMFF94 optimisation - all at once, then each on
+        #  to the worker's tolerances - in the order embedded)
         from rdkit.Chem import rdForceFieldHelpers
         mol = Chem.MolFromSmiles("C[C@H](O)CC")
         made = self.worker.conformers(mol, count=12)
@@ -258,12 +259,47 @@ class AWorkflowsSearch(unittest.TestCase):
         params.pruneRmsThresh = -1.0
         params.numThreads = 0
         ids = list(rdDistGeom.EmbedMultipleConfs(raw, numConfs=12, params=params))
-        energy = {cid: e for cid, (_, e) in zip(ids, rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(raw, numThreads=0, maxIters=self.worker.STEPS, mmffVariant="MMFF94"))}
+        rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(raw, numThreads=0, maxIters=self.worker.STEPS, mmffVariant="MMFF94")
+        props = rdForceFieldHelpers.MMFFGetMoleculeProperties(raw)
+        energy = {}
+        for cid in ids:
+            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(raw, props, confId=cid)
+            ff.Minimize(maxIts=self.worker.STEPS, forceTol=1e-6, energyTol=1e-12)
+            energy[cid] = ff.CalcEnergy()
         self.assertEqual(made["frames"], [[round(v, 4) for p in raw.GetConformer(c).GetPositions() for v in p] for c in ids])
         for got, cid in zip(made["energies"], ids):
             self.assertAlmostEqual(got, energy[cid] / self.worker.KCAL_PER_HARTREE, places=9)
         rows = {r["label"]: r["text"] for r in made["how"]}
         self.assertEqual(rows["Kept"], "12 of 12 embedded (12 sought)")
+        self.assertEqual(rows["Optimised"], "MMFF94, at most 2000 steps and 2000 more to a gradient of 1e-06")
+
+    def test_optimises_each_conformer_as_far_as_its_tolerances_so_that_optimising_again_moves_none(self):
+        # (MMFF94 on to a gradient of 1e-6: optimised again to the same, no atom of any conformer moves 1e-4 A - where RDKit's
+        #  own stopping point, 1e-4, leaves some to move on)
+        from rdkit.Chem import rdForceFieldHelpers
+        self.assertEqual((self.worker.FORCE_TOL, self.worker.ENERGY_TOL), (1e-6, 1e-12))
+        mol = Chem.AddHs(Chem.MolFromSmiles("COc1ccc(COC(C)C(C)CC)cc1"))
+        params = rdDistGeom.ETKDGv3()
+        params.randomSeed = self.worker.SEED
+        params.pruneRmsThresh = -1.0
+        ids = list(rdDistGeom.EmbedMultipleConfs(mol, numConfs=8, params=params))
+        loose = Chem.Mol(mol)
+        rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(loose, numThreads=0, maxIters=self.worker.STEPS)
+        done = self.worker.mmff_tight(mol, ids, "MMFF94", self.worker.STEPS, 2)
+        self.assertEqual([more for more, _ in done], [0] * len(ids))
+
+        def moved_on(m, cid):
+            props = rdForceFieldHelpers.MMFFGetMoleculeProperties(m)
+            before = m.GetConformer(cid).GetPositions()
+            # (a copy, kept while its force field works on its places: the force field holds none of its own)
+            copy = Chem.Mol(m)
+            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(copy, props, confId=cid)
+            ff.Minimize(maxIts=self.worker.STEPS, forceTol=1e-6, energyTol=1e-12)
+            after = ff.Positions()
+            return max(abs(after[k] - before.flat[k]) for k in range(len(after)))
+
+        self.assertLess(max(moved_on(mol, cid) for cid in ids), 1e-4)
+        self.assertGreater(max(moved_on(loose, cid) for cid in ids), 1e-4)
 
     def test_makes_each_enantiomer_itself_whatever_else_it_is_sent(self):
         # (butan-2-ol's two enantiomers: what the page once sent to have one made as the other's mirror image, in the
@@ -557,6 +593,25 @@ class HowManyTried(unittest.TestCase):
             self.worker.op_conformers({**held(EtaBound.ferrocene()), "count": 3, "options": {"threads": 3}})
         self.assertEqual({name for name, _ in seen}, {"EmbedMultipleConfs", "MMFFOptimizeMoleculeConfs", "UFFOptimizeMoleculeConfs", "OptimizeMoleculeConfs"})
         self.assertEqual({n for _, n in seen}, {3})
+        # (and each conformer's optimisation on to the worker's tolerances, in as many processes - where there are enough
+        #  conformers to be worth starting them; fewer, here)
+        pools = []
+        real = self.worker.tight_pool
+        with mock.patch.object(self.worker, "tight_pool", lambda n: pools.append(n) or real(n)):
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST, threads=3)
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST)
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST - 1, threads=3)
+        # (every core where none is asked - as many as the rule allows, and none where that is one)
+        cores = min(os.cpu_count() or 1, self.worker.MOST_THREADS, 61 if os.name == "nt" else self.worker.MOST_THREADS)
+        self.assertEqual(pools, [3] + ([cores] if cores > 1 else []))
+
+    def test_gives_the_same_conformers_on_one_thread_as_on_several(self):
+        # (the second pass in processes of their own answers as it does here: every frame and energy alike)
+        mol = Chem.MolFromSmiles("COc1ccc(COC(C)C)cc1")
+        one = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=1)
+        four = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=4)
+        self.assertEqual(one["frames"], four["frames"])
+        self.assertEqual(one["energies"], four["energies"])
 
     def test_gives_its_threads_to_a_metal_held_in_uff_and_to_one_that_stands_in(self):
         # (the two other places the optimising of a molecule with metals is asked for: a palladacycle, whose metal UFF types,
@@ -617,6 +672,121 @@ class HowManyTried(unittest.TestCase):
         self.assertEqual(self.worker.MOST_CONFORMERS, 5000)
         for n in (501, 1000, 5000):
             self.assertEqual(self.worker.options_of({"count": n})["count"], n)
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
+class SecondPassInProcesses(unittest.TestCase):
+    """The second MMFF pass in processes of their own (worker `mmff_tight`, `tight_pool`): as Meno runs the worker - a
+    line in, a line out, nothing else written, gone when its input ends or it is killed, its processes with it - and
+    done here where they cannot be had, the same answer either way."""
+
+    SMILES = "COc1ccc(COC(C)C)cc1"
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def run_worker(self):
+        import subprocess, sys
+        import json
+        ran = subprocess.Popen([sys.executable, "-u", "-B", str(WORKER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=WORKER.parent)
+        # (its pipes closed once the test is done, however it ends: nothing left open behind it)
+        self.addCleanup(lambda: [p.close() for p in (ran.stdin, ran.stdout) if p is not None and not p.closed])
+        # (its first line says it is ready, as Meno waits for)
+        self.assertEqual(json.loads(ran.stdout.readline())["event"], "ready")
+        return ran
+
+    def ask(self, ran, count):
+        import json
+        molblock = self.worker.op_from_smiles({"smiles": self.SMILES})["molblock"]
+        ran.stdin.write(json.dumps({"id": 7, "op": "conformers", "molblock": molblock, "count": count, "options": {"threads": 3}}) + "\n")
+        ran.stdin.flush()
+        return json.loads(ran.stdout.readline())
+
+    def children(self, pid):
+        import subprocess
+        found = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True).stdout.split()
+        return [int(p) for p in found]
+
+    def gone(self, pids, within=30):
+        deadline = time.time() + within
+        while time.time() < deadline:
+            left = []
+            for p in pids:
+                try:
+                    os.kill(p, 0)
+                    left.append(p)
+                except OSError:
+                    pass
+            if not left:
+                return True
+            time.sleep(0.2)
+        return False
+
+    def test_answers_one_line_writes_nothing_else_and_ends_with_its_input_its_processes_with_it(self):
+        ran = self.run_worker()
+        try:
+            answer = self.ask(ran, self.worker.POOL_LEAST + 8)
+            self.assertEqual((answer["id"], answer["ok"]), (7, True), answer)
+            self.assertEqual(len(answer["result"]["isomers"][0]["frames"]), self.worker.POOL_LEAST + 8)
+            # (the same answer as the worker gives here, in no process of its own)
+            here = self.worker.op_conformers({"molblock": self.worker.op_from_smiles({"smiles": self.SMILES})["molblock"], "count": self.worker.POOL_LEAST + 8, "options": {"threads": 1}})
+            self.assertEqual(answer["result"]["isomers"][0]["frames"], here["isomers"][0]["frames"])
+            started = self.children(ran.pid) if os.name != "nt" else []
+            if os.name != "nt":
+                self.assertTrue(started, "the second pass ran in no process of its own")
+            ran.stdin.close()
+            self.assertEqual(ran.wait(timeout=60), 0)
+            self.assertEqual(ran.stdout.read(), "")
+            self.assertTrue(self.gone(started))
+        finally:
+            if ran.poll() is None:
+                ran.kill()
+
+    @unittest.skipIf(os.name == "nt", "the processes it started are found by pgrep")
+    def test_its_processes_end_when_it_is_killed(self):
+        import signal
+        ran = self.run_worker()
+        try:
+            self.assertTrue(self.ask(ran, self.worker.POOL_LEAST + 8)["ok"])
+            started = self.children(ran.pid)
+            self.assertTrue(started)
+            os.kill(ran.pid, signal.SIGKILL)
+            ran.wait(timeout=30)
+            self.assertTrue(self.gone(started))
+        finally:
+            if ran.poll() is None:
+                ran.kill()
+
+    def test_does_it_here_where_its_processes_cannot_be_had_the_same_answer(self):
+        from unittest import mock
+        from concurrent.futures.process import BrokenProcessPool
+        mol = Chem.MolFromSmiles(self.SMILES)
+        here = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=1)
+        for failure in (BrokenProcessPool("gone"), OSError("no processes")):
+            def broken(n, failure=failure):
+                self.worker._pool["pool"], self.worker._pool["size"] = object(), n
+                raise failure
+            with mock.patch.object(self.worker, "tight_pool", broken):
+                made = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=3)
+            self.assertEqual((made["frames"], made["energies"]), (here["frames"], here["energies"]))
+            self.assertEqual((self.worker._pool["pool"], self.worker._pool["size"]), (None, 0))
+
+    def test_keeps_its_processes_while_as_many_are_asked_and_starts_others_for_another_number(self):
+        two = self.worker.tight_pool(2)
+        try:
+            self.assertIs(self.worker.tight_pool(2), two)
+            three = self.worker.tight_pool(3)
+            self.assertIsNot(three, two)
+            self.assertIs(self.worker.tight_pool(3), three)
+            # (those for two let go: nothing more is taken by them)
+            with self.assertRaises(RuntimeError):
+                two.submit(abs, -1)
+        finally:
+            self.worker._pool["pool"].shutdown(wait=True)
+            self.worker._pool["pool"], self.worker._pool["size"] = None, 0
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
@@ -1760,6 +1930,37 @@ class MinimiseWithRestraints(unittest.TestCase):
                 self.worker.conformers(Chem.MolFromSmiles("CCCC"), count=2, rows=[{"kind": "fixed", "atoms": [0]}])
             with self.assertRaisesRegex(ValueError, r"^A conformer search holds restraints only where the molecule has no metal"):
                 self.worker.conformers(Chem.MolFromSmiles("N[Pt](N)(Cl)Cl"), count=2, rows=rows)
+
+    def test_a_search_holding_restraints_optimises_each_to_the_same_tolerances_and_says_so(self):
+        # (butane's C-C-C-C held at 60 degrees by a strength: each conformer optimised, its restraint held, to a gradient of
+        #  1e-6 - every one converged within its steps - and its row saying it)
+        from unittest import mock
+        asked = []
+        real = self.worker.restrained_field
+
+        class Watched:
+            def __init__(self, ff):
+                self.ff = ff
+
+            def Minimize(self, **k):
+                more = self.ff.Minimize(**k)
+                asked.append((k, more))
+                return more
+
+            def __getattr__(self, name):
+                return getattr(self.ff, name)
+
+        def watched(*a, **k):
+            field, make = real(*a, **k)
+            return field, lambda cid, rows: Watched(make(cid, rows))
+
+        rows = [{"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": 60.0, "strength": 50.0}]
+        with mock.patch.object(self.worker, "restrained_field", watched):
+            made = self.worker.conformers(Chem.MolFromSmiles("CCCC"), count=6, rows=rows)
+        self.assertEqual({r["label"]: r["text"] for r in made["how"]}["Optimised"], "MMFF94, at most 2000 steps, to a gradient of 1e-06")
+        self.assertEqual(len(asked), 6)
+        self.assertEqual({(k["forceTol"], k["energyTol"], k["maxIts"]) for k, _ in asked}, {(1e-6, 1e-12, 2000)})
+        self.assertEqual([more for _, more in asked], [0] * 6)
 
     def test_a_search_embeds_a_distance_held_at_its_value(self):
         # (pyridine's N and BH3's B, two parts, held at 0.9 of Alvarez's radii together, 3.21 A: laid where ETKDG
