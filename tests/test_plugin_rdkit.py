@@ -692,6 +692,8 @@ class SecondPassInProcesses(unittest.TestCase):
         import subprocess, sys
         import json
         ran = subprocess.Popen([sys.executable, "-u", "-B", str(WORKER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=WORKER.parent)
+        # (its pipes closed once the test is done, however it ends: nothing left open behind it)
+        self.addCleanup(lambda: [p.close() for p in (ran.stdin, ran.stdout) if p is not None and not p.closed])
         # (its first line says it is ready, as Meno waits for)
         self.assertEqual(json.loads(ran.stdout.readline())["event"], "ready")
         return ran
