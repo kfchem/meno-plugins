@@ -190,9 +190,28 @@ def dispersion_route(choice, method, keywords):
     route = DISPERSIONS.get(choice)
     if route is None:
         raise Refused(f"no empirical dispersion is called {choice!r}")
-    if route and functional_of(method) not in DISPERSION_PARAMETERS[choice] and "IOP(" not in keywords.upper().replace(" ", ""):
-        raise Refused(f"Gaussian 16 has no {choice} parameters for {method or 'this method'}: choose None, or a method it has them for")
+    name = functional_of(method)
+    if route and name not in DISPERSION_PARAMETERS[choice] and "IOP(" not in keywords.upper().replace(" ", ""):
+        raise Refused(f"Gaussian 16 has no {choice} parameters for {method.strip() or 'this method'}: choose None, or a method it has them for{also(choice, name)}")
     return route
+
+
+# The keywords that carry a model as their own (the manual's notes under its tables: B2PLYPD for GD2, B2PLYPD3 for
+# GD3BJ): a functional typed without the suffix is pointed to the one with it.
+CARRIED_AS = {"GD2": "D", "GD3BJ": "D3"}
+# Another name a functional is often typed under, and the one the manual's tables give it.
+TABLE_NAME = {"PBE0": "PBE1PBE"}
+
+
+def also(choice, name):
+    """What the refusal adds, where it can name the keyword that has the parameters: the functional's own keyword that
+    carries the model (B2PLYP: B2PLYPD3), or its name in the manual's tables (PBE0: PBE1PBE)."""
+    suffix = CARRIED_AS.get(choice)
+    if suffix and name + suffix in DISPERSION_PARAMETERS[choice]:
+        return f" ({name}{suffix} carries it as its own)"
+    if TABLE_NAME.get(name) in DISPERSION_PARAMETERS[choice]:
+        return f" (Gaussian names {name} {TABLE_NAME[name]})"
+    return ""
 
 
 def whole(value, what, least=None):

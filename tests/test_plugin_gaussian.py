@@ -113,6 +113,42 @@ class Sections(unittest.TestCase):
     def functional(self, method):
         return worker.functional_of(method)
 
+    # The manual's three lists, written again here from its page "Density Functional (DFT) Methods" (G16 Rev. C.01,
+    # section Dispersion) - a second copy, independent of the worker's, so that a slip in either is caught.
+    MANUAL = {
+        "GD2": "B97D B2PLYPD MPW2PLYPD PBEPBE BLYP B3LYP BP86 TPSSTPSS",
+        "GD3": "B2PLYPD3 B97D3 B3LYP BLYP PBE1PBE TPSSTPSS PBEPBE BP86 BPBE B3PW91 BMK CAM-B3LYP LC-WPBE M05 M052X M06L M06 M062X M06HF PW6B95D3",
+        "GD3BJ": "B2PLYPD3 B97D3 PW6B95D3 B3LYP BLYP PBE1PBE TPSSTPSS PBEPBE BP86 BPBE B3PW91 BMK CAM-B3LYP LC-WPBE",
+    }
+
+    def test_each_model_goes_through_for_every_method_of_its_list_and_for_no_other(self):
+        every = set(" ".join(self.MANUAL.values()).split()) | {"HF", "MP2", "WB97XD", "APFD", "M11"}
+        for choice, listed in self.MANUAL.items():
+            listed = set(listed.split())
+            for method in sorted(every):
+                self.assertEqual(write(method=method, dispersion=choice)["ok"], method in listed, (choice, method))
+            # (and by the method: GD3BJ exactly where its list has the method)
+            if choice == "GD3BJ":
+                for method in sorted(every):
+                    self.assertEqual("EmpiricalDispersion=GD3BJ" in text(method=method, job="sp").split("\n")[1], method in listed, method)
+
+    def test_a_method_is_read_as_typed_its_spaces_and_a_prefix_on_a_name_of_any_list_aside(self):
+        # (M062X is in GD3's list alone: its unrestricted form goes through with GD3)
+        self.assertTrue(write(method="UM062X", dispersion="GD3")["ok"])
+        self.assertIn("EmpiricalDispersion=GD3BJ", text(method=" B3LYP ", job="sp").split("\n")[1])
+        # (internal options written with a space before the bracket, as Gaussian reads them)
+        self.assertTrue(write(method="HF", dispersion="GD3BJ", keywords="IOp (3/174=1000000)")["ok"])
+
+    def test_a_refusal_names_the_keyword_that_has_the_parameters_where_there_is_one(self):
+        r = write(method="B2PLYP", dispersion="GD3BJ")
+        self.assertTrue(r["error"].endswith(": Gaussian 16 has no GD3BJ parameters for B2PLYP: choose None, or a method it has them for (B2PLYPD3 carries it as its own)."), r["error"])
+        r = write(method="B2PLYP", dispersion="GD2")
+        self.assertTrue(r["error"].endswith("(B2PLYPD carries it as its own)."), r["error"])
+        r = write(method="PBE0", dispersion="GD3BJ")
+        self.assertTrue(r["error"].endswith("(Gaussian names PBE0 PBE1PBE)."), r["error"])
+        # (none where there is none to name)
+        self.assertTrue(write(method="HF", dispersion="GD3BJ")["error"].endswith("or a method it has them for."))
+
     def test_link_0_commands_only_where_asked(self):
         lines = text(checkpoint=False, processors=8, memory="16GB").split("\n")
         self.assertEqual(lines[:2], ["%NProcShared=8", "%Mem=16GB"])
