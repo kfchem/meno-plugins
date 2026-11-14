@@ -379,8 +379,11 @@ class Dispersion(unittest.TestCase):
         # (the card's default on Optimise and Frequencies: by the method - B3LYP, the default method, keeps D3BJ)
         self.assertEqual((defaults("optimise")["dispersion"], defaults("frequencies")["dispersion"]), ("by-method", "by-method"))
         self.assertIn(" D3BJ ", self.line())
-        for method in ("PBE0", "r2SCAN", "wB97X-D3BJ", "HF", "b3lyp"):
+        for method in ("PBE0", "r2SCAN", "b3lyp"):
             self.assertIn(" D3BJ ", self.line(method=method), method)
+        # (HF in the table, but a Hartree-Fock run is wanted plain: none by the method, D3BJ only when chosen by name)
+        self.assertNotIn("D3BJ", self.line(method="HF"))
+        self.assertIn(" D3BJ ", self.line(method="HF", dispersion="D3BJ"))
         # (none where ORCA has none of its own: an M06, a -V functional, a -3c composite, MP2, its own xTB)
         for method in ("M062X", "wB97M-V", "r2SCAN-3c", "RI-MP2", "NATIVE-XTB2"):
             self.assertNotIn("D3BJ", self.line(method=method, basis="" if method == "NATIVE-XTB2" else "def2-SVP"), method)
@@ -392,8 +395,28 @@ class Dispersion(unittest.TestCase):
             self.assertIn(f"ORCA has no D3BJ parameters for {method}: choose None, or a method it has them for", str(said.exception))
         # (in its table, it goes through; D4, whose table is not read here, is written as asked; none, nothing to refuse)
         self.assertIn(" D3BJ ", self.line(method="PBE0", dispersion="D3BJ"))
-        self.assertIn(" D4 ", self.line(method="M062X", dispersion="D4"))
         self.assertNotIn("D3BJ", self.line(method="M062X", dispersion="none"))
+
+    def test_d4_by_its_own_table(self):
+        # (M06 has D4 parameters, not D3BJ: D4 by name goes through; for a method in neither, refused in words)
+        self.assertIn(" D4 ", self.line(method="M06", dispersion="D4"))
+        self.assertIn(" D4 ", self.line(method="wB97X", dispersion="D4"))
+        for method in ("M062X", "DSD-BLYP", "wB97M-V"):
+            with self.assertRaises(AssertionError) as said:
+                self.line(method=method, dispersion="D4")
+            self.assertIn(f"ORCA has no D4 parameters for {method}: choose None, or a method it has them for", str(said.exception))
+
+    def test_a_double_hybrid_with_the_dlpno_prefix_is_its_double_hybrid(self):
+        # (the manual's own example, DLPNO-B2PLYP: B2PLYP's parameters - and DLPNO-CCSD(T), a post-HF method, none)
+        self.assertIn(" D3BJ ", self.line(method="DLPNO-B2PLYP", basis="def2-TZVP"))
+        self.assertIn(" D3BJ ", self.line(method="DLPNO-B2PLYP", basis="def2-TZVP", dispersion="D3BJ"))
+        self.assertNotIn("D3BJ", self.line(method="DLPNO-CCSD(T)", basis="def2-TZVP"))
+        with self.assertRaises(AssertionError):
+            self.line(method="DLPNO-CCSD(T)", basis="def2-TZVP", dispersion="D3BJ")
+
+    def test_a_keyword_that_carries_its_own_correction_gets_none_besides_by_the_method(self):
+        for method in ("B97-D", "wB97X-D3BJ", "wB97M-D3BJ", "B97M-D3BJ"):
+            self.assertNotIn("D3BJ ", self.line(method=method).replace(method, ""), method)
 
 
 # (what ORCA prints last where it ended well)
