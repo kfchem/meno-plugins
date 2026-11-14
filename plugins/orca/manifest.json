@@ -1,7 +1,7 @@
 {
   "id": "orca",
   "name": "ORCA interface",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "description": "Optimises molecules in 3D, and works out their energies and vibrations, with ORCA - installed separately, under its own licence, and never downloaded by Meno.",
   "licence": "Apache-2.0",
   "homepage": "https://www.faccts.de/orca/",
@@ -26,7 +26,7 @@
       "options": [
         {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
         {"id": "basis", "label": "Basis set", "type": "text", "default": "def2-SVP"},
-        {"id": "dispersion", "label": "Dispersion correction", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "D3BJ", "label": "D3 with Becke-Johnson damping (D3BJ)"}, {"value": "D4", "label": "D4"}], "default": "D3BJ"},
+        {"id": "dispersion", "label": "Dispersion correction", "type": "choice", "choices": [{"value": "by-method", "label": "D3BJ where the method has it, else none"}, {"value": "none", "label": "None"}, {"value": "D3BJ", "label": "D3 with Becke-Johnson damping (D3BJ)"}, {"value": "D4", "label": "D4"}], "default": "by-method"},
         {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "CPCM", "label": "C-PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
         {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["CPCM", "SMD"]}, "choices": [
           {"value": "water", "label": "Water"},
@@ -63,7 +63,7 @@
       "options": [
         {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
         {"id": "basis", "label": "Basis set", "type": "text", "default": "def2-SVP"},
-        {"id": "dispersion", "label": "Dispersion correction", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "D3BJ", "label": "D3 with Becke-Johnson damping (D3BJ)"}, {"value": "D4", "label": "D4"}], "default": "D3BJ"},
+        {"id": "dispersion", "label": "Dispersion correction", "type": "choice", "choices": [{"value": "by-method", "label": "D3BJ where the method has it, else none"}, {"value": "none", "label": "None"}, {"value": "D3BJ", "label": "D3 with Becke-Johnson damping (D3BJ)"}, {"value": "D4", "label": "D4"}], "default": "by-method"},
         {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "CPCM", "label": "C-PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
         {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["CPCM", "SMD"]}, "choices": [
           {"value": "water", "label": "Water"},
