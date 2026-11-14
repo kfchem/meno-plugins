@@ -121,6 +121,75 @@ def numerical_hessian(step, options):
     """Whether a saddle point's first Hessian is computed numerically: computed, at ORCA's own xTB."""
     return step == "saddle-point" and options.get("hessian", "computed") == "computed" and any(NATIVE_XTB.fullmatch(w) for w in str(options.get("method", "")).split())
 DISPERSIONS = {"none": "", "D3BJ": "D3BJ", "D4": "D4"}
+# The methods ORCA has each correction's parameters for, by its own keyword names (ORCA 6.1 Manual, faccts.de,
+# section 3.4 "Dispersion Corrections", 3.4.1.7 "Available Parameters": D3 with Becke-Johnson damping, table 3.16; D4,
+# table 3.15). Any other has none of the program's own: the manual says the "-V" functionals (their own non-local
+# dispersion) and post-HF methods take none, and gives the M06 family zero damping only for D3; the "-3c" composites and
+# ORCA's own xTB are not in the tables.
+D3BJ_PARAMETERS = {name.upper() for name in (
+    "HF", "BP86", "BLYP", "REVPBE", "B97-D", "PBE", "RPBE", "RPW86PBE", "B3LYP", "BHANDHLYP", "TPSS", "TPSS0", "PBE0",
+    "REVPBE38", "PW6B95", "B2PLYP", "mPWLYP", "OLYP", "BPBE", "OPBE", "B3PW91", "REVPBE0", "TPSSh", "CAM-B3LYP",
+    "B2GP-PLYP", "PWPB95", "SCAN", "RSCAN", "R2SCAN", "R2SCANh", "R2SCAN0", "R2SCAN50", "WR2SCAN", "r2SCAN0-DH",
+    "r2SCAN-CIDH", "r2SCAN-QIDH", "r2SCAN0-2", "Pr2SCAN50", "kPr2SCAN50", "wPr2SCAN50", "Pr2SCAN69", "revDSD-PBEP86/2021",
+    "revDOD-PBEP86/2021", "DSD-BLYP", "DSD-BLYP/2013", "DSD-PBEB95", "DSD-PBEP86", "DSD-PBEP86/2013", "B97M-D3BJ",
+    "wB97X-D3BJ", "wB97M-D3BJ", "wB97X-2", "PBE0DH", "PBE02", "PBE-QIDH",
+)}
+D4_PARAMETERS = {name.upper() for name in (
+    "HF", "BLYP", "BPBE", "BP86", "BPW91", "GLYP", "LB94", "mPWLYP", "mPWPW", "OLYP", "OPBE", "PBE", "RPBE", "REVPBE",
+    "PW86PBE", "RPW86PBE", "PW91", "PW91P86", "XLYP", "B97BECKE", "TPSS", "revTPSS", "SCAN", "B1LYP", "B3LYP", "BHANDHLYP",
+    "B1P", "B3P86", "B1PW91", "B3PW91", "O3LYP", "REVPBE0", "REVPBE38", "PBE0", "PWP1", "PW1PW", "mPW1PW", "mPW1LYP",
+    "PW6B95", "TPSSh", "TPSS0", "X3LYP", "M06L", "M06", "wB97", "wB97X", "B97M-D4", "CAM-B3LYP", "LC-BLYP", "B2PLYP",
+    "B2GP-PLYP", "mPW2PLYP", "PWPB95", "B97-D", "RSCAN", "r2SCAN", "r2SCANh", "r2SCAN0", "r2SCAN50", "wB97X-D4rev",
+    "wB97M-D4rev", "wR2SCAN", "r2SCAN0-DH", "r2SCAN-CIDH", "r2SCAN-QIDH", "r2SCAN0-2", "Pr2SCAN50", "kPr2SCAN50",
+    "wPr2SCAN50", "Pr2SCAN69", "revDSD-PBEP86/2021", "revDOD-PBEP86/2021", "LRC-PBE",
+)}
+PARAMETERS = {"D3BJ": D3BJ_PARAMETERS, "D4": D4_PARAMETERS}
+# The keywords that carry a correction by their own name (the manual's section 3.3, its keyword table): B97-D uses D2,
+# the "-D3BJ" and "-D4"/"-D4rev" ones their own - given none besides by the method, so that none is asked twice.
+OWN_CORRECTION = {name.upper() for name in ("B97-D", "wB97X-D3BJ", "wB97M-D3BJ", "B97M-D3BJ", "B97M-D4", "wB97X-D4rev", "wB97M-D4rev")}
+# Given none by the method, though in the table: those above, and HF - a Hartree-Fock run is wanted plain, D3BJ on it
+# only when chosen by name (ruled 2026-11-14, as the Gaussian plugin has it).
+NONE_BY_METHOD = OWN_CORRECTION | {"HF"}
+# The dispersion that follows the method (the card's default on Optimise and Frequencies): D3BJ where ORCA has its
+# parameters for the method, none where it has not.
+BY_METHOD = "by-method"
+
+
+# A word that names a correlated wave-function method (post-HF: the manual's MP2, CCSD(T), CASSCF, NEVPT2, the EOM and
+# ADC methods and their kin, with their prefixes): such a method takes no correction, whatever else the text names - "DLPNO-CCSD(T) HF" is no HF run.
+POST_HF = re.compile(r"([A-Z0-9]+-)*(MP[2-5]|CCSD|CC2|CC3|QCISD|CISD|N?CEPA|N?CPF|ACPF|CASSCF|CASPT2|NEVPT2|MRCI|MRCC|ADC)(\b.*|[A-Z0-9()]*)", re.I)
+
+
+def method_of(method):
+    """A method's text as the manual's tables name it: of its words (a simple input line's - "B3LYP RIJCOSX"), the first
+    the tables name, upper case, a leading DLPNO- (the manual's prefix for a natively implemented double hybrid,
+    DLPNO-B2PLYP its own example: section 3.3) taken off where what is left is named in them; else the text as it is,
+    which no table names - a "-V" functional; and wherever a word names a post-HF method (`POST_HF`), so that the text
+    is read as that method, not as a table's word beside it."""
+    known = D3BJ_PARAMETERS | D4_PARAMETERS
+    if any(POST_HF.fullmatch(word) for word in method.split()):
+        return method.strip().upper()
+    for word in method.upper().split():
+        if word in known:
+            return word
+        if word.startswith("DLPNO-") and word[len("DLPNO-"):] in known:
+            return word[len("DLPNO-"):]
+    return method.strip().upper()
+
+
+def dispersion_keyword(choice, method):
+    """The simple input's dispersion for the card's choice and the method typed: by the method, D3BJ where ORCA has its
+    parameters for it - and it is not HF, nor a keyword that carries its own - and none where not; D3BJ or D4 chosen by name,
+    refused in words where ORCA has none of its own for the method."""
+    name = method_of(method)
+    if choice == BY_METHOD:
+        return DISPERSIONS["D3BJ"] if name in D3BJ_PARAMETERS and name not in NONE_BY_METHOD else ""
+    keyword = DISPERSIONS.get(choice)
+    if keyword is None:
+        raise Refused(f"no dispersion correction is called {choice!r}")
+    if keyword and name not in PARAMETERS[choice]:
+        raise Refused(f"ORCA has no {choice} parameters for {method}: choose None, or a method it has them for")
+    return keyword
 SOLVATIONS = {"none", "CPCM", "SMD"}
 # the solvents offered, as ORCA names them - one word each, for a simple input line
 SOLVENTS = {
@@ -265,9 +334,7 @@ def orca_input(step, entry, options, cores):
     if numerical(step, options):
         run = NUMERICAL
     basis = words(options.get("basis", ""), "The basis set")
-    dispersion = DISPERSIONS.get(options.get("dispersion", "none"))
-    if dispersion is None:
-        raise Refused(f"no dispersion correction is called {options.get('dispersion')!r}")
+    dispersion = dispersion_keyword(options.get("dispersion", "none"), method)
     solvation = options.get("solvation", "none")
     if solvation not in SOLVATIONS:
         raise Refused(f"no solvation is called {solvation!r}")

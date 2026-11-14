@@ -362,10 +362,126 @@ class Prepare(unittest.TestCase):
                 self.assertEqual((options["images"]["default"], options["maxiter"].get("unset")), (8, 0))
                 continue
             self.assertEqual({c["value"] for c in options["solvent"]["choices"]}, worker.SOLVENTS)
-            self.assertEqual({c["value"] for c in options["dispersion"]["choices"]}, set(worker.DISPERSIONS))
+            # (each it writes, and - where its default is D3BJ by the method - that)
+            self.assertEqual({c["value"] for c in options["dispersion"]["choices"]} - {worker.BY_METHOD}, set(worker.DISPERSIONS))
             self.assertEqual({c["value"] for c in options["solvation"]["choices"]}, worker.SOLVATIONS)
             self.assertEqual(step["programs"], ["orca"])
         self.assertEqual(manifest["installed"][0]["name"], "orca")
+
+
+class Dispersion(unittest.TestCase):
+    def line(self, **options):
+        job = ask("prepare", step="optimise", entries=[WATER], options={**defaults("optimise"), **options}, cores=1)["jobs"][0]
+        text = next(f["text"] for f in job["files"] if f["name"] == "input.inp")
+        return next(l for l in text.splitlines() if l.startswith("!"))
+
+    def test_by_the_method_d3bj_only_where_orca_has_its_parameters(self):
+        # (the card's default on Optimise and Frequencies: by the method - B3LYP, the default method, keeps D3BJ)
+        self.assertEqual((defaults("optimise")["dispersion"], defaults("frequencies")["dispersion"]), ("by-method", "by-method"))
+        self.assertIn(" D3BJ ", self.line())
+        for method in ("PBE0", "r2SCAN", "b3lyp"):
+            self.assertIn(" D3BJ ", self.line(method=method), method)
+        # (HF in the table, but a Hartree-Fock run is wanted plain: none by the method, D3BJ only when chosen by name)
+        self.assertNotIn("D3BJ", self.line(method="HF"))
+        self.assertIn(" D3BJ ", self.line(method="HF", dispersion="D3BJ"))
+        # (none where ORCA has none of its own: an M06, a -V functional, a -3c composite, MP2, its own xTB)
+        for method in ("M062X", "wB97M-V", "r2SCAN-3c", "RI-MP2", "NATIVE-XTB2"):
+            self.assertNotIn("D3BJ", self.line(method=method, basis="" if method == "NATIVE-XTB2" else "def2-SVP"), method)
+
+    def test_d3bj_chosen_for_a_method_without_its_parameters_is_refused_in_words(self):
+        for method in ("M062X", "wB97M-V", "r2SCAN-3c"):
+            with self.assertRaises(AssertionError) as said:
+                self.line(method=method, dispersion="D3BJ")
+            self.assertIn(f"ORCA has no D3BJ parameters for {method}: choose None, or a method it has them for", str(said.exception))
+        # (in its table, it goes through; D4, whose table is not read here, is written as asked; none, nothing to refuse)
+        self.assertIn(" D3BJ ", self.line(method="PBE0", dispersion="D3BJ"))
+        self.assertNotIn("D3BJ", self.line(method="M062X", dispersion="none"))
+
+    def test_d4_by_its_own_table(self):
+        # (M06 has D4 parameters, not D3BJ: D4 by name goes through; for a method in neither, refused in words)
+        self.assertIn(" D4 ", self.line(method="M06", dispersion="D4"))
+        self.assertIn(" D4 ", self.line(method="wB97X", dispersion="D4"))
+        for method in ("M062X", "DSD-BLYP", "wB97M-V"):
+            with self.assertRaises(AssertionError) as said:
+                self.line(method=method, dispersion="D4")
+            self.assertIn(f"ORCA has no D4 parameters for {method}: choose None, or a method it has them for", str(said.exception))
+
+    def test_a_double_hybrid_with_the_dlpno_prefix_is_its_double_hybrid(self):
+        # (the manual's own example, DLPNO-B2PLYP: B2PLYP's parameters - and DLPNO-CCSD(T), a post-HF method, none)
+        self.assertIn(" D3BJ ", self.line(method="DLPNO-B2PLYP", basis="def2-TZVP"))
+        self.assertIn(" D3BJ ", self.line(method="DLPNO-B2PLYP", basis="def2-TZVP", dispersion="D3BJ"))
+        self.assertNotIn("D3BJ", self.line(method="DLPNO-CCSD(T)", basis="def2-TZVP"))
+        with self.assertRaises(AssertionError):
+            self.line(method="DLPNO-CCSD(T)", basis="def2-TZVP", dispersion="D3BJ")
+
+    def test_a_keyword_that_carries_its_own_correction_gets_none_besides_by_the_method(self):
+        for method in ("B97-D", "wB97X-D3BJ", "wB97M-D3BJ", "B97M-D3BJ"):
+            self.assertNotIn("D3BJ ", self.line(method=method).replace(method, ""), method)
+
+    def test_a_method_typed_as_more_than_one_word_is_read_for_the_word_its_table_names(self):
+        # (another keyword typed beside it: B3LYP keeps its D3BJ by the method, and D3BJ or D4 by name go through)
+        self.assertIn(" D3BJ ", self.line(method="B3LYP RIJCOSX"))
+        self.assertIn(" D3BJ ", self.line(method="B3LYP RIJCOSX", dispersion="D3BJ"))
+        self.assertIn(" D4 ", self.line(method="B3LYP RIJCOSX", dispersion="D4"))
+        self.assertIn(" D3BJ ", self.line(method="RIJCOSX DLPNO-B2PLYP", basis="def2-TZVP"))
+        # (and a -V functional or a post-HF method beside another keyword still gets none)
+        self.assertNotIn("D3BJ", self.line(method="wB97M-V RIJCOSX"))
+        self.assertNotIn("D3BJ", self.line(method="DLPNO-CCSD(T) TightPNO", basis="def2-TZVP"))
+        # (a post-HF method named beside a table's word is that method: no correction by the method, none let through by name)
+        for method in ("DLPNO-CCSD(T) HF", "RI-MP2 B3LYP", "CASSCF PBE0", "EOM-CCSD B3LYP", "DLPNO-STEOM-CCSD PBE0", "bt-PNO-EOM-CCSD HF",
+                       "SC-NEVPT2 HF", "FIC-MRCI HF", "CCSDT HF", "NCEPA/1 HF", "ADC2 HF", "RI-ADC(2) HF"):
+            self.assertNotIn("D3BJ", self.line(method=method, basis="def2-TZVP"), method)
+            for choice in ("D3BJ", "D4"):
+                with self.assertRaises(AssertionError):
+                    self.line(method=method, basis="def2-TZVP", dispersion=choice)
+
+    def test_no_name_of_either_table_is_read_as_a_post_hf_method(self):
+        for name in sorted(set(self.D3BJ) | set(self.D4)):
+            self.assertIsNone(worker.POST_HF.fullmatch(name), name)
+
+    def test_a_method_in_the_d4_table_alone_gets_no_d3bj(self):
+        # (M06 has zero damping only for D3: no D3BJ by the method nor by name; D4 by name goes through)
+        for method in ("M06", "wB97X", "BPW91"):
+            self.assertNotIn("D3BJ", self.line(method=method), method)
+            with self.assertRaises(AssertionError):
+                self.line(method=method, dispersion="D3BJ")
+            self.assertIn(" D4 ", self.line(method=method, dispersion="D4"), method)
+
+    # Table 3.16's names (ORCA 6.1, section 3.4.1.7), written again here as the chemistry check read them - a second
+    # copy, independent of the worker's, so that a slip in either is caught.
+    D3BJ = (
+        "HF BP86 BLYP REVPBE B97-D PBE RPBE RPW86PBE B3LYP BHANDHLYP TPSS TPSS0 PBE0 REVPBE38 PW6B95 B2PLYP mPWLYP OLYP BPBE "
+        "OPBE B3PW91 REVPBE0 TPSSh CAM-B3LYP B2GP-PLYP PWPB95 SCAN RSCAN R2SCAN R2SCANh R2SCAN0 R2SCAN50 WR2SCAN r2SCAN0-DH "
+        "r2SCAN-CIDH r2SCAN-QIDH r2SCAN0-2 Pr2SCAN50 kPr2SCAN50 wPr2SCAN50 Pr2SCAN69 revDSD-PBEP86/2021 revDOD-PBEP86/2021 "
+        "DSD-BLYP DSD-BLYP/2013 DSD-PBEB95 DSD-PBEP86 DSD-PBEP86/2013 B97M-D3BJ wB97X-D3BJ wB97M-D3BJ wB97X-2 PBE0DH PBE02 PBE-QIDH"
+    ).split()
+    # Table 3.15's names, as they stood when they were read entry for entry against the manual in review: a slip made
+    # in the worker's list after that is caught here.
+    D4 = (
+        "HF BLYP BPBE BP86 BPW91 GLYP LB94 mPWLYP mPWPW OLYP OPBE PBE RPBE REVPBE PW86PBE RPW86PBE PW91 PW91P86 XLYP B97BECKE "
+        "TPSS revTPSS SCAN B1LYP B3LYP BHANDHLYP B1P B3P86 B1PW91 B3PW91 O3LYP REVPBE0 REVPBE38 PBE0 PWP1 PW1PW mPW1PW mPW1LYP "
+        "PW6B95 TPSSh TPSS0 X3LYP M06L M06 wB97 wB97X B97M-D4 CAM-B3LYP LC-BLYP B2PLYP B2GP-PLYP mPW2PLYP PWPB95 B97-D RSCAN "
+        "r2SCAN r2SCANh r2SCAN0 r2SCAN50 wB97X-D4rev wB97M-D4rev wR2SCAN r2SCAN0-DH r2SCAN-CIDH r2SCAN-QIDH r2SCAN0-2 Pr2SCAN50 "
+        "kPr2SCAN50 wPr2SCAN50 Pr2SCAN69 revDSD-PBEP86/2021 revDOD-PBEP86/2021 LRC-PBE"
+    ).split()
+
+    def goes_through(self, choice, method):
+        try:
+            return worker.dispersion_keyword(choice, method) == choice
+        except worker.Refused:
+            return False
+
+    def test_each_correction_goes_through_for_every_method_of_its_table_and_for_no_other(self):
+        self.assertEqual((len(self.D3BJ), len(self.D4)), (55, 73))
+        every = {m.upper() for m in self.D3BJ + self.D4} | {"M062X", "WB97M-V", "R2SCAN-3C", "MP2"}
+        for choice, table in (("D3BJ", self.D3BJ), ("D4", self.D4)):
+            table = {m.upper() for m in table}
+            for method in sorted(every):
+                self.assertEqual(self.goes_through(choice, method), method in table, (choice, method))
+        # (by the method: D3BJ exactly where its table has the method, but HF and the keywords with their own)
+        own = {m.upper() for m in ("HF", "B97-D", "wB97X-D3BJ", "wB97M-D3BJ", "B97M-D3BJ")}
+        for method in sorted(every):
+            self.assertEqual(worker.dispersion_keyword("by-method", method) == "D3BJ", method in {m.upper() for m in self.D3BJ} - own, method)
 
 
 # (what ORCA prints last where it ended well)
