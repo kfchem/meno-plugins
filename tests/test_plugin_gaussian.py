@@ -85,6 +85,34 @@ class Sections(unittest.TestCase):
         # (a line break in a keyword would end the section: it is a space)
         self.assertEqual(route(job="freq", dispersion="none", keywords="Int=UltraFine\nNoSymm"), "# B3LYP/6-31G(d) Freq Int=UltraFine NoSymm")
 
+    def test_the_dispersion_by_the_method_gd3bj_only_where_gaussian_has_its_parameters(self):
+        route = lambda **o: text(**o).split("\n")[1]  # noqa: E731
+        # (the card's default: by the method - B3LYP, the default method, keeps GD3BJ)
+        self.assertEqual(defaults()["dispersion"], "by-method")
+        self.assertEqual(route(job="opt"), "# B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ Opt")
+        for method in ("B3LYP", "UB3LYP", "ROB3LYP", "b3lyp", "CAM-B3LYP", "PBE1PBE", "B97D3"):
+            self.assertIn("EmpiricalDispersion=GD3BJ", route(job="sp", method=method), method)
+        # (none where Gaussian 16 has no GD3BJ parameters: HF, a wave-function method, a Minnesota functional, one with its own)
+        for method in ("HF", "UHF", "MP2", "M062X", "wB97XD", "APFD", "M11"):
+            self.assertNotIn("EmpiricalDispersion", route(job="sp", method=method), method)
+
+    def test_a_dispersion_chosen_by_name_is_refused_in_words_where_gaussian_has_no_parameters_for_the_method(self):
+        for method, choice in (("HF", "GD3BJ"), ("MP2", "GD3"), ("M062X", "GD3BJ"), ("PBE1PBE", "GD2"), ("wB97XD", "GD3")):
+            r = write(method=method, dispersion=choice)
+            self.assertFalse(r["ok"], (method, choice))
+            self.assertTrue(r["error"].endswith(f": Gaussian 16 has no {choice} parameters for {method}: choose None, or a method it has them for."), r["error"])
+        # (in its own list it goes through - M062X with GD3 - and so does a model whose parameters the keywords give by hand)
+        self.assertTrue(write(method="M062X", dispersion="GD3")["ok"])
+        self.assertTrue(write(method="UB3LYP", dispersion="GD3BJ")["ok"])
+        self.assertTrue(write(method="HF", dispersion="GD3BJ", keywords="IOp(3/174=1000000)")["ok"])
+        # (none chosen, nothing to refuse)
+        self.assertTrue(write(method="HF", dispersion="none")["ok"])
+        # (a name only the start of which is R or U is no restricted or unrestricted form of a listed one)
+        self.assertEqual(self.functional("RevPBE"), "REVPBE")
+
+    def functional(self, method):
+        return worker.functional_of(method)
+
     def test_link_0_commands_only_where_asked(self):
         lines = text(checkpoint=False, processors=8, memory="16GB").split("\n")
         self.assertEqual(lines[:2], ["%NProcShared=8", "%Mem=16GB"])
