@@ -428,11 +428,16 @@ class Dispersion(unittest.TestCase):
         self.assertNotIn("D3BJ", self.line(method="wB97M-V RIJCOSX"))
         self.assertNotIn("D3BJ", self.line(method="DLPNO-CCSD(T) TightPNO", basis="def2-TZVP"))
         # (a post-HF method named beside a table's word is that method: no correction by the method, none let through by name)
-        for method in ("DLPNO-CCSD(T) HF", "RI-MP2 B3LYP", "CASSCF PBE0"):
+        for method in ("DLPNO-CCSD(T) HF", "RI-MP2 B3LYP", "CASSCF PBE0", "EOM-CCSD B3LYP", "DLPNO-STEOM-CCSD PBE0", "bt-PNO-EOM-CCSD HF",
+                       "SC-NEVPT2 HF", "FIC-MRCI HF", "CCSDT HF", "NCEPA/1 HF", "ADC2 HF", "RI-ADC(2) HF"):
             self.assertNotIn("D3BJ", self.line(method=method, basis="def2-TZVP"), method)
             for choice in ("D3BJ", "D4"):
                 with self.assertRaises(AssertionError):
                     self.line(method=method, basis="def2-TZVP", dispersion=choice)
+
+    def test_no_name_of_either_table_is_read_as_a_post_hf_method(self):
+        for name in sorted(set(self.D3BJ) | set(self.D4)):
+            self.assertIsNone(worker.POST_HF.fullmatch(name), name)
 
     def test_a_method_in_the_d4_table_alone_gets_no_d3bj(self):
         # (M06 has zero damping only for D3: no D3BJ by the method nor by name; D4 by name goes through)

@@ -155,9 +155,9 @@ NONE_BY_METHOD = OWN_CORRECTION | {"HF"}
 BY_METHOD = "by-method"
 
 
-# A word that names a correlated wave-function method (post-HF: the manual's MP2, CCSD(T), CASSCF, NEVPT2 and their kin,
-# with their prefixes): such a method takes no correction, whatever else the text names - "DLPNO-CCSD(T) HF" is no HF run.
-POST_HF = re.compile(r"((DLPNO|LPNO|RI|SCS|SOS|OO|F12)-)*(MP[2-5]|CCSD|CC2|CC3|QCISD|CISD|CEPA|CPF|ACPF|CASSCF|CASPT2|NEVPT2|MRCI|MRCC)\b.*", re.I)
+# A word that names a correlated wave-function method (post-HF: the manual's MP2, CCSD(T), CASSCF, NEVPT2, the EOM and
+# ADC methods and their kin, with their prefixes): such a method takes no correction, whatever else the text names - "DLPNO-CCSD(T) HF" is no HF run.
+POST_HF = re.compile(r"([A-Z0-9]+-)*(MP[2-5]|CCSD|CC2|CC3|QCISD|CISD|N?CEPA|N?CPF|ACPF|CASSCF|CASPT2|NEVPT2|MRCI|MRCC|ADC)(\b.*|[A-Z0-9()]*)", re.I)
 
 
 def method_of(method):
