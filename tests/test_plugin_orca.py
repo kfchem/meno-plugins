@@ -362,10 +362,38 @@ class Prepare(unittest.TestCase):
                 self.assertEqual((options["images"]["default"], options["maxiter"].get("unset")), (8, 0))
                 continue
             self.assertEqual({c["value"] for c in options["solvent"]["choices"]}, worker.SOLVENTS)
-            self.assertEqual({c["value"] for c in options["dispersion"]["choices"]}, set(worker.DISPERSIONS))
+            # (each it writes, and - where its default is D3BJ by the method - that)
+            self.assertEqual({c["value"] for c in options["dispersion"]["choices"]} - {worker.BY_METHOD}, set(worker.DISPERSIONS))
             self.assertEqual({c["value"] for c in options["solvation"]["choices"]}, worker.SOLVATIONS)
             self.assertEqual(step["programs"], ["orca"])
         self.assertEqual(manifest["installed"][0]["name"], "orca")
+
+
+class Dispersion(unittest.TestCase):
+    def line(self, **options):
+        job = ask("prepare", step="optimise", entries=[WATER], options={**defaults("optimise"), **options}, cores=1)["jobs"][0]
+        text = next(f["text"] for f in job["files"] if f["name"] == "input.inp")
+        return next(l for l in text.splitlines() if l.startswith("!"))
+
+    def test_by_the_method_d3bj_only_where_orca_has_its_parameters(self):
+        # (the card's default on Optimise and Frequencies: by the method - B3LYP, the default method, keeps D3BJ)
+        self.assertEqual((defaults("optimise")["dispersion"], defaults("frequencies")["dispersion"]), ("by-method", "by-method"))
+        self.assertIn(" D3BJ ", self.line())
+        for method in ("PBE0", "r2SCAN", "wB97X-D3BJ", "HF", "b3lyp"):
+            self.assertIn(" D3BJ ", self.line(method=method), method)
+        # (none where ORCA has none of its own: an M06, a -V functional, a -3c composite, MP2, its own xTB)
+        for method in ("M062X", "wB97M-V", "r2SCAN-3c", "RI-MP2", "NATIVE-XTB2"):
+            self.assertNotIn("D3BJ", self.line(method=method, basis="" if method == "NATIVE-XTB2" else "def2-SVP"), method)
+
+    def test_d3bj_chosen_for_a_method_without_its_parameters_is_refused_in_words(self):
+        for method in ("M062X", "wB97M-V", "r2SCAN-3c"):
+            with self.assertRaises(AssertionError) as said:
+                self.line(method=method, dispersion="D3BJ")
+            self.assertIn(f"ORCA has no D3BJ parameters for {method}: choose None, or a method it has them for", str(said.exception))
+        # (in its table, it goes through; D4, whose table is not read here, is written as asked; none, nothing to refuse)
+        self.assertIn(" D3BJ ", self.line(method="PBE0", dispersion="D3BJ"))
+        self.assertIn(" D4 ", self.line(method="M062X", dispersion="D4"))
+        self.assertNotIn("D3BJ", self.line(method="M062X", dispersion="none"))
 
 
 # (what ORCA prints last where it ended well)

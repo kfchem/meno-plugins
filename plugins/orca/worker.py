@@ -121,6 +121,35 @@ def numerical_hessian(step, options):
     """Whether a saddle point's first Hessian is computed numerically: computed, at ORCA's own xTB."""
     return step == "saddle-point" and options.get("hessian", "computed") == "computed" and any(NATIVE_XTB.fullmatch(w) for w in str(options.get("method", "")).split())
 DISPERSIONS = {"none": "", "D3BJ": "D3BJ", "D4": "D4"}
+# The methods ORCA has D3 parameters with Becke-Johnson damping for, by its own keyword names (ORCA 6.1 Manual,
+# faccts.de, section 3.4 "Dispersion Corrections", 3.4.1.7 "Available Parameters", table 3.16). Any other has none
+# of the program's own: the "-V" functionals (their own non-local dispersion), the "-3c" composites, ORCA's own xTB,
+# MP2 and other wave-function methods, and the M06 family (zero damping only).
+D3BJ_PARAMETERS = {name.upper() for name in (
+    "HF", "BP86", "BLYP", "REVPBE", "B97-D", "PBE", "RPBE", "RPW86PBE", "B3LYP", "BHANDHLYP", "TPSS", "TPSS0", "PBE0",
+    "REVPBE38", "PW6B95", "B2PLYP", "mPWLYP", "OLYP", "BPBE", "OPBE", "B3PW91", "REVPBE0", "TPSSh", "CAM-B3LYP",
+    "B2GP-PLYP", "PWPB95", "SCAN", "RSCAN", "R2SCAN", "R2SCANh", "R2SCAN0", "R2SCAN50", "WR2SCAN", "r2SCAN0-DH",
+    "r2SCAN-CIDH", "r2SCAN-QIDH", "r2SCAN0-2", "Pr2SCAN50", "kPr2SCAN50", "wPr2SCAN50", "Pr2SCAN69", "revDSD-PBEP86/2021",
+    "revDOD-PBEP86/2021", "DSD-BLYP", "DSD-BLYP/2013", "DSD-PBEB95", "DSD-PBEP86", "DSD-PBEP86/2013", "B97M-D3BJ",
+    "wB97X-D3BJ", "wB97M-D3BJ", "wB97X-2", "PBE0DH", "PBE02", "PBE-QIDH",
+)}
+# The dispersion that follows the method (the card's default on Optimise and Frequencies): D3BJ where ORCA has its
+# parameters for the method, none where it has not.
+BY_METHOD = "by-method"
+
+
+def dispersion_keyword(choice, method):
+    """The simple input's dispersion for the card's choice and the method typed: by the method, D3BJ where ORCA has its
+    parameters for it and none where not; D3BJ chosen by name, refused in words where ORCA has none of its own for the
+    method. (D4's table is not read here: D4 chosen is written as it is.)"""
+    if choice == BY_METHOD:
+        return DISPERSIONS["D3BJ"] if method.strip().upper() in D3BJ_PARAMETERS else ""
+    keyword = DISPERSIONS.get(choice)
+    if keyword is None:
+        raise Refused(f"no dispersion correction is called {choice!r}")
+    if choice == "D3BJ" and method.strip().upper() not in D3BJ_PARAMETERS:
+        raise Refused(f"ORCA has no D3BJ parameters for {method}: choose None, or a method it has them for")
+    return keyword
 SOLVATIONS = {"none", "CPCM", "SMD"}
 # the solvents offered, as ORCA names them - one word each, for a simple input line
 SOLVENTS = {
@@ -265,9 +294,7 @@ def orca_input(step, entry, options, cores):
     if numerical(step, options):
         run = NUMERICAL
     basis = words(options.get("basis", ""), "The basis set")
-    dispersion = DISPERSIONS.get(options.get("dispersion", "none"))
-    if dispersion is None:
-        raise Refused(f"no dispersion correction is called {options.get('dispersion')!r}")
+    dispersion = dispersion_keyword(options.get("dispersion", "none"), method)
     solvation = options.get("solvation", "none")
     if solvation not in SOLVATIONS:
         raise Refused(f"no solvation is called {solvation!r}")
