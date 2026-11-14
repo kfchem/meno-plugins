@@ -427,6 +427,12 @@ class Dispersion(unittest.TestCase):
         # (and a -V functional or a post-HF method beside another keyword still gets none)
         self.assertNotIn("D3BJ", self.line(method="wB97M-V RIJCOSX"))
         self.assertNotIn("D3BJ", self.line(method="DLPNO-CCSD(T) TightPNO", basis="def2-TZVP"))
+        # (a post-HF method named beside a table's word is that method: no correction by the method, none let through by name)
+        for method in ("DLPNO-CCSD(T) HF", "RI-MP2 B3LYP", "CASSCF PBE0"):
+            self.assertNotIn("D3BJ", self.line(method=method, basis="def2-TZVP"), method)
+            for choice in ("D3BJ", "D4"):
+                with self.assertRaises(AssertionError):
+                    self.line(method=method, basis="def2-TZVP", dispersion=choice)
 
     def test_a_method_in_the_d4_table_alone_gets_no_d3bj(self):
         # (M06 has zero damping only for D3: no D3BJ by the method nor by name; D4 by name goes through)

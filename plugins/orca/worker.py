@@ -155,12 +155,20 @@ NONE_BY_METHOD = OWN_CORRECTION | {"HF"}
 BY_METHOD = "by-method"
 
 
+# A word that names a correlated wave-function method (post-HF: the manual's MP2, CCSD(T), CASSCF, NEVPT2 and their kin,
+# with their prefixes): such a method takes no correction, whatever else the text names - "DLPNO-CCSD(T) HF" is no HF run.
+POST_HF = re.compile(r"((DLPNO|LPNO|RI|SCS|SOS|OO|F12)-)*(MP[2-5]|CCSD|CC2|CC3|QCISD|CISD|CEPA|CPF|ACPF|CASSCF|CASPT2|NEVPT2|MRCI|MRCC)\b.*", re.I)
+
+
 def method_of(method):
     """A method's text as the manual's tables name it: of its words (a simple input line's - "B3LYP RIJCOSX"), the first
     the tables name, upper case, a leading DLPNO- (the manual's prefix for a natively implemented double hybrid,
     DLPNO-B2PLYP its own example: section 3.3) taken off where what is left is named in them; else the text as it is,
-    which no table names - a "-V" functional, a post-HF method."""
+    which no table names - a "-V" functional; and wherever a word names a post-HF method (`POST_HF`), so that the text
+    is read as that method, not as a table's word beside it."""
     known = D3BJ_PARAMETERS | D4_PARAMETERS
+    if any(POST_HF.fullmatch(word) for word in method.split()):
+        return method.strip().upper()
     for word in method.upper().split():
         if word in known:
             return word
