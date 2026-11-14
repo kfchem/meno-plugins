@@ -418,6 +418,60 @@ class Dispersion(unittest.TestCase):
         for method in ("B97-D", "wB97X-D3BJ", "wB97M-D3BJ", "B97M-D3BJ"):
             self.assertNotIn("D3BJ ", self.line(method=method).replace(method, ""), method)
 
+    def test_a_method_typed_as_more_than_one_word_is_read_for_the_word_its_table_names(self):
+        # (another keyword typed beside it: B3LYP keeps its D3BJ by the method, and D3BJ or D4 by name go through)
+        self.assertIn(" D3BJ ", self.line(method="B3LYP RIJCOSX"))
+        self.assertIn(" D3BJ ", self.line(method="B3LYP RIJCOSX", dispersion="D3BJ"))
+        self.assertIn(" D4 ", self.line(method="B3LYP RIJCOSX", dispersion="D4"))
+        self.assertIn(" D3BJ ", self.line(method="RIJCOSX DLPNO-B2PLYP", basis="def2-TZVP"))
+        # (and a -V functional or a post-HF method beside another keyword still gets none)
+        self.assertNotIn("D3BJ", self.line(method="wB97M-V RIJCOSX"))
+        self.assertNotIn("D3BJ", self.line(method="DLPNO-CCSD(T) TightPNO", basis="def2-TZVP"))
+
+    def test_a_method_in_the_d4_table_alone_gets_no_d3bj(self):
+        # (M06 has zero damping only for D3: no D3BJ by the method nor by name; D4 by name goes through)
+        for method in ("M06", "wB97X", "BPW91"):
+            self.assertNotIn("D3BJ", self.line(method=method), method)
+            with self.assertRaises(AssertionError):
+                self.line(method=method, dispersion="D3BJ")
+            self.assertIn(" D4 ", self.line(method=method, dispersion="D4"), method)
+
+    # Table 3.16's names (ORCA 6.1, section 3.4.1.7), written again here as the chemistry check read them - a second
+    # copy, independent of the worker's, so that a slip in either is caught.
+    D3BJ = (
+        "HF BP86 BLYP REVPBE B97-D PBE RPBE RPW86PBE B3LYP BHANDHLYP TPSS TPSS0 PBE0 REVPBE38 PW6B95 B2PLYP mPWLYP OLYP BPBE "
+        "OPBE B3PW91 REVPBE0 TPSSh CAM-B3LYP B2GP-PLYP PWPB95 SCAN RSCAN R2SCAN R2SCANh R2SCAN0 R2SCAN50 WR2SCAN r2SCAN0-DH "
+        "r2SCAN-CIDH r2SCAN-QIDH r2SCAN0-2 Pr2SCAN50 kPr2SCAN50 wPr2SCAN50 Pr2SCAN69 revDSD-PBEP86/2021 revDOD-PBEP86/2021 "
+        "DSD-BLYP DSD-BLYP/2013 DSD-PBEB95 DSD-PBEP86 DSD-PBEP86/2013 B97M-D3BJ wB97X-D3BJ wB97M-D3BJ wB97X-2 PBE0DH PBE02 PBE-QIDH"
+    ).split()
+    # Table 3.15's names, as they stood when they were read entry for entry against the manual in review: a slip made
+    # in the worker's list after that is caught here.
+    D4 = (
+        "HF BLYP BPBE BP86 BPW91 GLYP LB94 mPWLYP mPWPW OLYP OPBE PBE RPBE REVPBE PW86PBE RPW86PBE PW91 PW91P86 XLYP B97BECKE "
+        "TPSS revTPSS SCAN B1LYP B3LYP BHANDHLYP B1P B3P86 B1PW91 B3PW91 O3LYP REVPBE0 REVPBE38 PBE0 PWP1 PW1PW mPW1PW mPW1LYP "
+        "PW6B95 TPSSh TPSS0 X3LYP M06L M06 wB97 wB97X B97M-D4 CAM-B3LYP LC-BLYP B2PLYP B2GP-PLYP mPW2PLYP PWPB95 B97-D RSCAN "
+        "r2SCAN r2SCANh r2SCAN0 r2SCAN50 wB97X-D4rev wB97M-D4rev wR2SCAN r2SCAN0-DH r2SCAN-CIDH r2SCAN-QIDH r2SCAN0-2 Pr2SCAN50 "
+        "kPr2SCAN50 wPr2SCAN50 Pr2SCAN69 revDSD-PBEP86/2021 revDOD-PBEP86/2021 LRC-PBE"
+    ).split()
+
+    def goes_through(self, choice, method):
+        try:
+            return worker.dispersion_keyword(choice, method) == choice
+        except worker.Refused:
+            return False
+
+    def test_each_correction_goes_through_for_every_method_of_its_table_and_for_no_other(self):
+        self.assertEqual((len(self.D3BJ), len(self.D4)), (55, 73))
+        every = {m.upper() for m in self.D3BJ + self.D4} | {"M062X", "WB97M-V", "R2SCAN-3C", "MP2"}
+        for choice, table in (("D3BJ", self.D3BJ), ("D4", self.D4)):
+            table = {m.upper() for m in table}
+            for method in sorted(every):
+                self.assertEqual(self.goes_through(choice, method), method in table, (choice, method))
+        # (by the method: D3BJ exactly where its table has the method, but HF and the keywords with their own)
+        own = {m.upper() for m in ("HF", "B97-D", "wB97X-D3BJ", "wB97M-D3BJ", "B97M-D3BJ")}
+        for method in sorted(every):
+            self.assertEqual(worker.dispersion_keyword("by-method", method) == "D3BJ", method in {m.upper() for m in self.D3BJ} - own, method)
+
 
 # (what ORCA prints last where it ended well)
 ENDED = "ORCA output\n                             ****ORCA TERMINATED NORMALLY****\n"

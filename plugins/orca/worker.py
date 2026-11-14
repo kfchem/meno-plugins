@@ -124,7 +124,7 @@ DISPERSIONS = {"none": "", "D3BJ": "D3BJ", "D4": "D4"}
 # The methods ORCA has each correction's parameters for, by its own keyword names (ORCA 6.1 Manual, faccts.de,
 # section 3.4 "Dispersion Corrections", 3.4.1.7 "Available Parameters": D3 with Becke-Johnson damping, table 3.16; D4,
 # table 3.15). Any other has none of the program's own: the manual says the "-V" functionals (their own non-local
-# dispersion) and post-HF methods take none, and gives the M06 family zero damping only; the "-3c" composites and
+# dispersion) and post-HF methods take none, and gives the M06 family zero damping only for D3; the "-3c" composites and
 # ORCA's own xTB are not in the tables.
 D3BJ_PARAMETERS = {name.upper() for name in (
     "HF", "BP86", "BLYP", "REVPBE", "B97-D", "PBE", "RPBE", "RPW86PBE", "B3LYP", "BHANDHLYP", "TPSS", "TPSS0", "PBE0",
@@ -156,14 +156,17 @@ BY_METHOD = "by-method"
 
 
 def method_of(method):
-    """A method's text as the manual's tables name it: upper case, and a leading DLPNO- (the manual's prefix for a
-    natively implemented double hybrid, DLPNO-B2PLYP its own example: section 3.3) taken off where what is left is
-    named in them; else the text as it is."""
-    name = method.strip().upper()
+    """A method's text as the manual's tables name it: of its words (a simple input line's - "B3LYP RIJCOSX"), the first
+    the tables name, upper case, a leading DLPNO- (the manual's prefix for a natively implemented double hybrid,
+    DLPNO-B2PLYP its own example: section 3.3) taken off where what is left is named in them; else the text as it is,
+    which no table names - a "-V" functional, a post-HF method."""
     known = D3BJ_PARAMETERS | D4_PARAMETERS
-    if name.startswith("DLPNO-") and name[len("DLPNO-"):] in known and name not in known:
-        return name[len("DLPNO-"):]
-    return name
+    for word in method.upper().split():
+        if word in known:
+            return word
+        if word.startswith("DLPNO-") and word[len("DLPNO-"):] in known:
+            return word[len("DLPNO-"):]
+    return method.strip().upper()
 
 
 def dispersion_keyword(choice, method):
