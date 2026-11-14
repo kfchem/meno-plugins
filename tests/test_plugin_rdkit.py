@@ -197,6 +197,87 @@ class FromSmiles(unittest.TestCase):
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
+class ConfigurationBesideTheBlock(unittest.TestCase):
+    """Every answer that carries a drawing carries its configuration beside it (`configuration_written`), by the
+    block's own atom and bond numbers, so that Meno lays its drawing out from what was read, not from this layout's
+    wedges (a ring of 36 or more is laid out here as a polygon, and a centre on it reads as stating nothing)."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def given_back(self, block, configuration, reader=None):
+        """The block read back with every mark of its own taken off, given the configuration that came beside it."""
+        mol = (reader or Chem.MolFromMolBlock)(block)
+        Chem.RemoveStereochemistry(mol)
+        return Chem.MolToSmiles(self.worker.configured(mol, configuration))
+
+    def test_a_smiles_drawn_comes_with_each_centre_and_double_bond_it_gives(self):
+        ring = "C" * 33
+        cases = {
+            # (L-alanine written both ways, the H implicit; L-proline, a ring closure at its centre)
+            "C[C@H](N)C(=O)O": (1, 0),
+            "N[C@@H](C)C(=O)O": (1, 0),
+            "OC(=O)[C@@H]1CCCN1": (1, 0),
+            "F[C@](Cl)(Br)[H]": (1, 0),
+            # (a methyl lactone of a ring of 36; an E and a Z double bond in a ring of 36)
+            f"C[C@@H]1{ring}C(=O)O1": (1, 0),
+            f"C1{'C' * 16}/C=C/{'C' * 16}C1": (0, 1),
+            f"C1{'C' * 16}/C=C\\{'C' * 16}C1": (0, 1),
+            "C/C=C\\C=C\\C(=O)O": (0, 2),
+            "CC(C)O": (0, 0),
+        }
+        for smiles, (centres, doubles) in cases.items():
+            got = self.worker.op_from_smiles({"smiles": smiles})
+            c = got["configuration"]
+            self.assertEqual((len(c["centres"]), len(c["doubles"])), (centres, doubles), smiles)
+            self.assertEqual(self.given_back(got["molblock"], c), Chem.CanonSmiles(smiles), smiles)
+
+    def test_is_given_back_as_the_molecule_it_was_read_from(self):
+        # (`configured` and `configuration_written` each the other's inverse)
+        for smiles in ["C[C@@H](O)[C@H](C)O", "C[C@H]1CC[C@@H](C)CC1", "C/C=C/[C@@H](C)Cl"]:
+            mol = Chem.MolFromSmiles(smiles)
+            bare = Chem.Mol(mol)
+            Chem.RemoveStereochemistry(bare)
+            again = self.worker.configured(bare, self.worker.configuration_written(mol))
+            self.assertEqual(Chem.MolToSmiles(again), Chem.MolToSmiles(mol), smiles)
+
+    def test_a_drawing_from_3d_comes_with_it(self):
+        from rdkit.Chem import AllChem
+
+        for smiles in ["C[C@H](N)C(=O)O", "C/C=C/CC"]:
+            mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+            self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=3), 0)
+            got = self.worker.op_drawing_of({"molblock": Chem.MolToMolBlock(mol)})
+            self.assertEqual(self.given_back(got["molblock"], got["configuration"]), Chem.CanonSmiles(smiles), smiles)
+
+    def test_each_stereoisomer_drawn_comes_with_its_own(self):
+        block = self.worker.op_from_smiles({"smiles": "CC(O)C(O)C"})["molblock"]
+        got = self.worker.op_stereoisomers({"molblocks": [block], "most": 10, "drawings": True, "inThreeD": False, "open": {"atoms": [1, 3], "bonds": []}})
+        self.assertEqual(len(got["isomers"]), 3)
+        for one in got["isomers"]:
+            self.assertEqual(self.given_back(one["molblock"], one["configuration"]), Chem.CanonSmiles(one["smiles"]))
+
+    def test_an_adduct_written_as_drawn_keeps_its_numbers(self):
+        # (an amine-BF3 adduct with a centre beside its N, drawn with its arrow: written back as drawn, `as_drawn`)
+        mol = Chem.MolFromSmiles("CC[C@H](C)N(C)(C)->B(F)(F)F", sanitize=False)
+        mol.UpdatePropertyCache(strict=False)
+        Chem.FastFindRings(mol)
+        Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
+        from rdkit.Chem import rdDepictor
+
+        rdDepictor.Compute2DCoords(mol)
+        got = self.worker.op_stereoisomers({"molblocks": [Chem.MolToV3KMolBlock(mol, kekulize=False)], "most": 10, "drawings": True, "inThreeD": False, "open": {"atoms": [], "bonds": []}})
+        (one,) = got["isomers"]
+        back = self.worker.read(one["molblock"])
+        self.assertTrue(self.worker.held_dipolar(back))
+        self.assertEqual(len(one["configuration"]["centres"]), 1)
+        self.assertEqual(self.given_back(one["molblock"], one["configuration"], self.worker.read), one["smiles"])
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
 class SmilesNotRead(unittest.TestCase):
     """A SMILES that cannot be read: said so, and what RDKit made of it given as facts (`smiles_read`). Why, in words,
     is Meno's (src/lib/chem/smilesWhy, with its own tests)."""
