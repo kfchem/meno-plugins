@@ -1,7 +1,7 @@
 {
   "id": "gaussian",
   "name": "Gaussian interface",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Optimises molecules in 3D and works out their energies and vibrations with Gaussian 16 - installed separately, under its own licence, never downloaded by Meno - writes a molecule in 3D as Gaussian 16 input, and reads Gaussian 16's output and formatted checkpoints.",
   "licence": "Apache-2.0",
   "homepage": "https://gaussian.com",
@@ -27,11 +27,12 @@
         {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
         {"id": "basis", "label": "Basis set", "type": "text", "default": "6-31G(d)"},
         {"id": "dispersion", "label": "Empirical dispersion", "type": "choice", "choices": [
+          {"value": "by-method", "label": "GD3BJ where the method has it, else none"},
           {"value": "none", "label": "None"},
           {"value": "GD2", "label": "Grimme's D2 (GD2)"},
           {"value": "GD3", "label": "Grimme's D3 (GD3)"},
           {"value": "GD3BJ", "label": "Grimme's D3 with Becke-Johnson damping (GD3BJ)"}
-        ], "default": "GD3BJ"},
+        ], "default": "by-method"},
         {"id": "keywords", "label": "More keywords for the route section", "type": "text", "default": ""},
         {"id": "charge", "label": "Charge", "type": "number", "default": 0, "step": 1, "from": "charge", "whole": true},
         {"id": "multiplicity", "label": "Spin multiplicity", "type": "number", "default": 1, "min": 1, "step": 1, "from": "multiplicity", "whole": true},
@@ -54,11 +55,12 @@
         {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
         {"id": "basis", "label": "Basis set", "type": "text", "default": "6-31G(d)"},
         {"id": "dispersion", "label": "Empirical dispersion", "type": "choice", "choices": [
+          {"value": "by-method", "label": "GD3BJ where the method has it, else none"},
           {"value": "none", "label": "None"},
           {"value": "GD2", "label": "Grimme's D2 (GD2)"},
           {"value": "GD3", "label": "Grimme's D3 (GD3)"},
           {"value": "GD3BJ", "label": "Grimme's D3 with Becke-Johnson damping (GD3BJ)"}
-        ], "default": "GD3BJ"},
+        ], "default": "by-method"},
         {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "PCM", "label": "PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
         {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["PCM", "SMD"]}, "choices": [
           {"value": "Water", "label": "Water"},
@@ -97,11 +99,12 @@
         {"id": "method", "label": "Method", "type": "text", "default": "B3LYP"},
         {"id": "basis", "label": "Basis set", "type": "text", "default": "6-31G(d)"},
         {"id": "dispersion", "label": "Empirical dispersion", "type": "choice", "choices": [
+          {"value": "by-method", "label": "GD3BJ where the method has it, else none"},
           {"value": "none", "label": "None"},
           {"value": "GD2", "label": "Grimme's D2 (GD2)"},
           {"value": "GD3", "label": "Grimme's D3 (GD3)"},
           {"value": "GD3BJ", "label": "Grimme's D3 with Becke-Johnson damping (GD3BJ)"}
-        ], "default": "GD3BJ"},
+        ], "default": "by-method"},
         {"id": "solvation", "label": "Solvation", "type": "choice", "choices": [{"value": "none", "label": "None"}, {"value": "PCM", "label": "PCM"}, {"value": "SMD", "label": "SMD"}], "default": "none"},
         {"id": "solvent", "label": "Solvent", "type": "choice", "when": {"id": "solvation", "in": ["PCM", "SMD"]}, "choices": [
           {"value": "Water", "label": "Water"},
