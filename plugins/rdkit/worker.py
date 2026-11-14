@@ -299,7 +299,7 @@ def op_from_smiles(m):
     if mol is None:
         # (why, in words, is Meno's to say - from the SMILES itself, and what RDKit made of it: `smiles_read`)
         raise ValueError("This SMILES could not be read.")
-    return {"molblock": drawing_block(mol)}
+    return {"molblock": drawing_block(mol), "configuration": configuration_written(mol)}
 
 
 def op_smiles_read(m):
@@ -343,6 +343,20 @@ def drawing_block(mol):
         rdDepictor.Compute2DCoords(mol, forceRDKit=True)
         block = written()
     return block
+
+
+def configuration_written(mol):
+    """The configuration of the molecule a drawing block is written from, by
+    the block's own atom and bond numbers, in Meno's terms (lib/chem/
+    stereoOpen `Configuration`, as `configuration_of_isomer` gives it): each
+    centre and double bond RDKit holds one for. Sent beside the block, so
+    that Meno lays its own drawing out from what RDKit read rather than
+    from what this layout's wedges show: a ring of 36 or more is laid out
+    here as a regular polygon, and a centre on it reads as stating nothing.
+    It is the inverse of `configured`: given back, it makes the same
+    molecule. Axes and cumulenes are not in it (Meno's own reading of a
+    SMILES gives those)."""
+    return configuration_of_isomer(mol, range(mol.GetNumAtoms()), range(mol.GetNumBonds()))
 
 
 def reads_as(molblock, mol):
@@ -717,7 +731,8 @@ def op_stereoisomers(m):
     is given: `tooLong`. Else each made, in the order RDKit gives them:
     its configuration of the open elements Meno names (`open`, its centres
     and double bonds), its SMILES and, with `drawings`, itself as a drawing
-    (`drawing_block`) - or why it cannot be one; and `free` where none was
+    (`drawing_block`) with its whole configuration beside it
+    (`configuration_written`) - or why it cannot be one; and `free` where none was
     made: none can be made in 3D with its stereo held."""
     started = time.monotonic()
     deadline = started + m["withinMs"] / 1000 if m.get("withinMs") else None
@@ -753,6 +768,7 @@ def op_stereoisomers(m):
         if m.get("drawings"):
             try:
                 one["molblock"] = drawing_block(Chem.Mol(iso))
+                one["configuration"] = configuration_written(iso)
             except ValueError as e:
                 # (an adduct's drawing that cannot be written back as drawn - `as_drawn`)
                 one["error"] = str(e)
@@ -1542,7 +1558,7 @@ def op_conformers(m):
 def op_drawing_of(m):
     """A molecule in 3D as a formula to draw: its heavy atoms, in their
     order, laid out in 2D, wedged as its 3D structure says (for Meno's engine
-    to draw afresh). Where its bonds' orders are not known - all single, as a
+    to draw afresh), with its configuration beside it (`configuration_written`). Where its bonds' orders are not known - all single, as a
     file of coordinates alone gives them - they are found from where its
     atoms are, if they can be."""
     mol = Chem.MolFromMolBlock(m["molblock"], sanitize=False, removeHs=False)
@@ -1569,7 +1585,7 @@ def op_drawing_of(m):
     heavy = Chem.RemoveHs(mol)
     heavy.RemoveAllConformers()
     lay_out_2d(heavy)
-    return {"molblock": Chem.MolToV3KMolBlock(heavy), "perceived": perceived}
+    return {"molblock": Chem.MolToV3KMolBlock(heavy), "configuration": configuration_written(heavy), "perceived": perceived}
 
 
 def op_orders_from_smiles(m):
