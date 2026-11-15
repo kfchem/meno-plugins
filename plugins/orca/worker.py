@@ -39,7 +39,14 @@ else:
   "file", %method ProgExt "path"), so a step's text names neither - a
   workspace's steps may come from someone else, and run where it is
   opened;
-- %pal nprocs, the processes a run uses, where it may use more than one;
+- %pal nprocs, the processes a run uses, where it may use more than one -
+  never for frequencies computed numerically (NUMFREQ at ORCA's own xTB),
+  which run serially, one core each job: run in parallel, a job whose
+  displaced geometry's SCF did not converge was seen never to end, where
+  run serially ORCA ends it with its own error; the numbers are the same
+  either way, only the time differs. A path search's NEB-TS runs its
+  images in parallel too; whether it can wait so on an image whose SCF
+  fails has not been tested;
   %maxcore, the memory for each, in MB;
 - the coordinates, "* xyz charge multiplicity", an atom a line - its
   element and x, y, z in angstroms, and an isotope's mass after them,
@@ -548,8 +555,12 @@ def op_prepare(m):
     # (more than one core, and no MPI to run ORCA's processes with: one core each job, said - never a job ORCA ends at its
     #  start-up, as every one would, "mpirun: command not found")
     given = whole(m.get("cores"), "The cores", 1) if m.get("cores") else 1
-    alone = given > 1 and not launcher_found(programs=m.get("programs"))
-    if alone:
+    # (frequencies computed numerically - at ORCA's own xTB - on every computer serially: one core each job, no %pal, nothing
+    #  more said than that they are computed numerically - in parallel, one displaced geometry whose SCF failed was seen to keep
+    #  its job from ever ending; serially, ORCA ends it with its own words. The same numbers either way)
+    serial = given > 1 and numerical(step, options)
+    alone = given > 1 and not serial and not launcher_found(programs=m.get("programs"))
+    if alone or serial:
         m = {**m, "cores": 1}
     # (a reaction path's step offers no wavefunction kept: none written)
     # (a saddle point's step offers no wavefunction kept: none written)
@@ -597,7 +608,7 @@ def op_prepare(m):
         raise first or Refused("nothing came in")
     said = NUMERICAL_SAID if numerical(step, options) else NUMERICAL_HESSIAN_SAID if numerical_hessian(step, options) else None
     note = "; ".join(n for n in (said, NO_LAUNCHER_SAID if alone else None) if n)
-    return {"jobs": [{**j, "cores": 1} for j in jobs] if alone else jobs, **({"note": note} if note else {}), **({"refused": refused} if refused else {})}
+    return {"jobs": [{**j, "cores": 1} for j in jobs] if alone or serial else jobs, **({"note": note} if note else {}), **({"refused": refused} if refused else {})}
 
 
 def output_name(entry):
