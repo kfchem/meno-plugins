@@ -291,7 +291,7 @@ class Prepare(unittest.TestCase):
             self.assertEqual(other["jobs"][0]["files"][0]["text"].splitlines()[0], first)
             self.assertNotIn("note", other)
 
-    def test_frequencies_computed_numerically_run_serially_on_every_computer_the_other_steps_keep_their_processes(self):
+    def test_hessians_computed_numerically_run_serially_on_every_computer_the_other_steps_keep_their_processes(self):
         from unittest import mock
         found = mock.patch.object(worker, "which", lambda name, path=None: f"/usr/local/bin/{name}")
         native = {"method": "NATIVE-XTB2", "basis": "", "dispersion": "none", "maxcore": 1000}
@@ -313,10 +313,17 @@ class Prepare(unittest.TestCase):
             analytic = ask("prepare", step="frequencies", entries=[WATER], options={**defaults("frequencies"), "maxcore": 1000}, cores=5)
         self.assertIn("%pal nprocs 5 end", analytic["jobs"][0]["files"][0]["text"])
         self.assertNotIn("cores", analytic["jobs"][0])
-        # (optimise, energy, a saddle point, a path search and a reaction path at ORCA's own xTB keep theirs)
-        for step, entry in [("optimise", WATER), ("energy", WATER), ("saddle-point", WATER), ("path-search", {**H2, "end": H2_END}), ("reaction-path", H2)]:
+        # (a saddle point at ORCA's own xTB whose first Hessian is computed - numerically there - serially too, said as before)
+        with found:
+            computed = ask("prepare", step="saddle-point", entries=[WATER], options={**defaults("saddle-point"), **native, "hessian": "computed"}, cores=5)
+        self.assertNotIn("%pal", computed["jobs"][0]["files"][0]["text"])
+        self.assertEqual(computed["jobs"][0]["cores"], 1)
+        self.assertEqual(computed["jobs"][0]["memory"], 1000)
+        self.assertEqual(computed["note"], "its first Hessian computed numerically")
+        # (optimise, energy, a saddle point from a model Hessian, a path search and a reaction path at ORCA's own xTB keep theirs)
+        for step, entry, more in [("optimise", WATER, {}), ("energy", WATER, {}), ("saddle-point", WATER, {"hessian": "model"}), ("path-search", {**H2, "end": H2_END}, {}), ("reaction-path", H2, {})]:
             with found:
-                job = ask("prepare", step=step, entries=[entry], options={**defaults(step), **native}, cores=5)["jobs"][0]
+                job = ask("prepare", step=step, entries=[entry], options={**defaults(step), **native, **more}, cores=5)["jobs"][0]
             self.assertIn("%pal nprocs 5 end", job["files"][0]["text"], step)
             self.assertNotIn("cores", job, step)
             self.assertEqual(job["memory"], 5000, step)
