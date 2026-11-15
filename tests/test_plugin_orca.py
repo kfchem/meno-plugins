@@ -201,10 +201,10 @@ class Prepare(unittest.TestCase):
             one = ask("prepare", step="energy", entries=[WATER], options=opts, cores=1)
         self.assertNotIn("note", one)
         self.assertNotIn("cores", one["jobs"][0])
-        # (said beside what else the step says: frequencies at ORCA's own xTB, computed numerically)
+        # (frequencies at ORCA's own xTB, computed numerically: serially whether MPI is there or not - nothing said of MPI)
         with missing:
             numeric = ask("prepare", step="frequencies", entries=[WATER], options={**defaults("frequencies"), "method": "NATIVE-XTB2", "basis": ""}, cores=4)
-        self.assertEqual(numeric["note"], "frequencies computed numerically; run on one core: no MPI on this computer")
+        self.assertEqual(numeric["note"], "frequencies computed numerically")
         # (a path search too)
         with missing:
             path = ask("prepare", step="path-search", entries=[{**H2, "end": H2_END}], options=defaults("path-search"), cores=4)
@@ -290,6 +290,47 @@ class Prepare(unittest.TestCase):
             other = ask("prepare", step=step, entries=[WATER], options=options)
             self.assertEqual(other["jobs"][0]["files"][0]["text"].splitlines()[0], first)
             self.assertNotIn("note", other)
+
+    def test_hessians_computed_numerically_run_serially_on_every_computer_the_other_steps_keep_their_processes(self):
+        from unittest import mock
+        found = mock.patch.object(worker, "which", lambda name, path=None: f"/usr/local/bin/{name}")
+        native = {"method": "NATIVE-XTB2", "basis": "", "dispersion": "none", "maxcore": 1000}
+        # (Frequencies at ORCA's own xTB, given 5 cores, MPI there: no %pal - one core each job, its memory for one - and said
+        #  only as computed numerically)
+        for platform in ("win32", "darwin", "linux"):
+            with found, mock.patch.object(worker.sys, "platform", platform):
+                freq = ask("prepare", step="frequencies", entries=[WATER, WATER], options={**defaults("frequencies"), **native}, cores=5)
+            for job in freq["jobs"]:
+                text = job["files"][0]["text"]
+                self.assertEqual(text.splitlines()[0], "! NATIVE-XTB2 NUMFREQ")
+                self.assertNotIn("%pal", text)
+                self.assertIn("%maxcore 1000", text)
+                self.assertEqual(job["cores"], 1)
+                self.assertEqual(job["memory"], 1000)
+            self.assertEqual(freq["note"], "frequencies computed numerically")
+        # (Frequencies at another method - analytic - keep theirs)
+        with found:
+            analytic = ask("prepare", step="frequencies", entries=[WATER], options={**defaults("frequencies"), "maxcore": 1000}, cores=5)
+        self.assertIn("%pal nprocs 5 end", analytic["jobs"][0]["files"][0]["text"])
+        self.assertNotIn("cores", analytic["jobs"][0])
+        # (a saddle point at ORCA's own xTB whose first Hessian is computed - numerically there - serially too, said as before)
+        with found:
+            computed = ask("prepare", step="saddle-point", entries=[WATER], options={**defaults("saddle-point"), **native, "hessian": "computed"}, cores=5)
+        self.assertNotIn("%pal", computed["jobs"][0]["files"][0]["text"])
+        self.assertEqual(computed["jobs"][0]["cores"], 1)
+        self.assertEqual(computed["jobs"][0]["memory"], 1000)
+        self.assertEqual(computed["note"], "its first Hessian computed numerically")
+        # (optimise, energy, a saddle point from a model Hessian, a path search and a reaction path at ORCA's own xTB keep theirs)
+        for step, entry, more in [("optimise", WATER, {}), ("energy", WATER, {}), ("saddle-point", WATER, {"hessian": "model"}), ("path-search", {**H2, "end": H2_END}, {}), ("reaction-path", H2, {})]:
+            with found:
+                job = ask("prepare", step=step, entries=[entry], options={**defaults(step), **native, **more}, cores=5)["jobs"][0]
+            self.assertIn("%pal nprocs 5 end", job["files"][0]["text"], step)
+            self.assertNotIn("cores", job, step)
+            self.assertEqual(job["memory"], 5000, step)
+        # (one core given: as before, nothing to change)
+        one = ask("prepare", step="frequencies", entries=[WATER], options={**defaults("frequencies"), **native}, cores=1)
+        self.assertNotIn("%pal", one["jobs"][0]["files"][0]["text"])
+        self.assertNotIn("cores", one["jobs"][0])
 
     def test_a_lone_atom_asked_to_be_optimised_is_run_as_sp(self):
         # (ORCA, given OPT for one atom, warns and stops with no energy)
