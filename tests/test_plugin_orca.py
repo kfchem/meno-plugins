@@ -320,6 +320,12 @@ class Prepare(unittest.TestCase):
         self.assertEqual(computed["jobs"][0]["cores"], 1)
         self.assertEqual(computed["jobs"][0]["memory"], 1000)
         self.assertEqual(computed["note"], "its first Hessian computed numerically")
+        # (one whose options name no Hessian at all: computed, ORCA's own, so serially too)
+        unnamed = {k: v for k, v in {**defaults("saddle-point"), **native}.items() if k != "hessian"}
+        with found:
+            bare = ask("prepare", step="saddle-point", entries=[WATER], options=unnamed, cores=5)
+        self.assertNotIn("%pal", bare["jobs"][0]["files"][0]["text"])
+        self.assertEqual(bare["jobs"][0]["cores"], 1)
         # (optimise, energy, a saddle point from a model Hessian, a path search and a reaction path at ORCA's own xTB keep theirs)
         for step, entry, more in [("optimise", WATER, {}), ("energy", WATER, {}), ("saddle-point", WATER, {"hessian": "model"}), ("path-search", {**H2, "end": H2_END}, {}), ("reaction-path", H2, {})]:
             with found:
