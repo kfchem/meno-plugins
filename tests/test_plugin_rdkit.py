@@ -2120,14 +2120,20 @@ class AndOrGroups(unittest.TestCase):
             out.append(tuple(got[a]["sense"] * self.worker.parity(got[a]["neighbours"], sorted(got[a]["neighbours"])) for a in atoms))
         return out
 
-    def test_a_configuration_meno_gives_wins_over_the_blocks_wedge_with_a_group_or_none(self):
-        for groups in ([("and", [1, 6])], []):
+    def test_configured_turns_a_centre_whatever_the_block_wedges_and_a_group_is_still_turned_whole(self):
+        # (asked as Meno asks - `op_stereoisomers` with `configured`: with no group, the configuration given is the one made; with
+        #  and1 on both centres, both halves still come back, the group turned whole - the configuration given chooses neither, and
+        #  Meno reads each half back by its centres, never by its place in the answer)
+        turned_smiles = "C[C@H]1CCCC[C@@H]1O"
+        for groups, made in (([], {turned_smiles}), ([("and", [1, 6])], {turned_smiles, "C[C@@H]1CCCC[C@H]1O"})):
             block = self.grouped("C[C@@H]1CCCC[C@H]1O", groups)
             mol, _ = self.worker.stereo_read([block])
             as_drawn = self.worker.configuration_of_isomer(mol, [1, 6], [])
             turned = {"centres": [{**c, "sense": -c["sense"]} for c in as_drawn["centres"]], "doubles": []}
-            self.assertNotEqual(Chem.MolToSmiles(self.worker.configured(mol, turned)), Chem.MolToSmiles(mol), groups)
-            self.assertEqual(Chem.MolToSmiles(self.worker.configured(mol, turned)), "C[C@H]1CCCC[C@@H]1O", groups)
+            self.assertEqual(Chem.MolToSmiles(self.worker.configured(mol, turned)), turned_smiles, groups)
+            got = self.worker.op_stereoisomers({"molblock": block, "configured": turned, "open": {"atoms": [1, 6], "bonds": []}, "most": 64, "inThreeD": True})
+            self.assertEqual({i["smiles"] for i in got["isomers"]}, made, groups)
+            self.assertEqual(len(got["isomers"]), len(made), groups)
 
     def test_a_group_is_turned_whole_never_in_part_and_each_half_tried_in_3d(self):
         # (trans-2-methylcyclohexan-1-ol, and1 on both centres: its two halves, each centre with the other)
