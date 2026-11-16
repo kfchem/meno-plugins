@@ -2085,3 +2085,81 @@ class MinimiseWithRestraints(unittest.TestCase):
         self.assertEqual((job["args"][1].endswith("minimise_job.py"), job["reads"]), (True, ["minimised.json"]))
         self.assertEqual(given["restraints"][0]["strength"], 50.0)
         self.assertEqual(len(given["start"]), 3 * mol.GetNumAtoms())
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
+class AndOrGroups(unittest.TestCase):
+    """What Meno takes of a structure whose centres are drawn in AND or OR groups (V3000 STERACn, STERELn; Meno's
+    foundation part 7): the toolkit turns each group as a whole, never in part, and tries each half in 3D; Meno reads
+    each half back by the group's centres named in `open`, and decides the rest (Workspace/chem/groupHalves). And a
+    configuration Meno gives a centre the block wedges is the one made, group or none."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def grouped(self, smiles, groups):
+        """`smiles` drawn, wedged as it gives, its centres put in `groups` - each ("and" or "or", atoms) - as V3000."""
+        from rdkit.Chem import AllChem
+
+        mol = Chem.RWMol(Chem.MolFromSmiles(smiles))
+        AllChem.Compute2DCoords(mol)
+        kinds = {"and": Chem.StereoGroupType.STEREO_AND, "or": Chem.StereoGroupType.STEREO_OR}
+        mol.SetStereoGroups([Chem.CreateStereoGroup(kinds[k], mol, atoms) for k, atoms in groups])
+        Chem.WedgeMolBonds(mol, mol.GetConformer())
+        return Chem.MolToV3KMolBlock(mol)
+
+    def senses(self, block, atoms):
+        """Each isomer the block gives, as the senses of `atoms` read back, in their order."""
+        made = self.worker.op_stereoisomers({"molblock": block, "open": {"atoms": atoms, "bonds": []}, "most": 64, "inThreeD": True})
+        out = []
+        for i in made["isomers"]:
+            got = {c["atom"]: c for c in i["configured"]["centres"]}
+            out.append(tuple(got[a]["sense"] * self.worker.parity(got[a]["neighbours"], sorted(got[a]["neighbours"])) for a in atoms))
+        return out
+
+    def test_a_configuration_meno_gives_wins_over_the_blocks_wedge_with_a_group_or_none(self):
+        for groups in ([("and", [1, 6])], []):
+            block = self.grouped("C[C@@H]1CCCC[C@H]1O", groups)
+            mol, _ = self.worker.stereo_read([block])
+            as_drawn = self.worker.configuration_of_isomer(mol, [1, 6], [])
+            turned = {"centres": [{**c, "sense": -c["sense"]} for c in as_drawn["centres"]], "doubles": []}
+            self.assertNotEqual(Chem.MolToSmiles(self.worker.configured(mol, turned)), Chem.MolToSmiles(mol), groups)
+            self.assertEqual(Chem.MolToSmiles(self.worker.configured(mol, turned)), "C[C@H]1CCCC[C@@H]1O", groups)
+
+    def test_a_group_is_turned_whole_never_in_part_and_each_half_tried_in_3d(self):
+        # (trans-2-methylcyclohexan-1-ol, and1 on both centres: its two halves, each centre with the other)
+        two = self.senses(self.grouped("C[C@@H]1CCCC[C@H]1O", [("and", [1, 6])]), [1, 6])
+        self.assertEqual(len(two), 2)
+        self.assertEqual({(a == b) for a, b in two}, {two[0][0] == two[0][1]})
+        # (or1: the same two)
+        self.assertEqual(len(self.senses(self.grouped("C[C@@H]1CCCC[C@H]1O", [("or", [1, 6])]), [1, 6])), 2)
+        # (4-tert-butyl-2-methylcyclohexan-1-ol, and1 on C1 and C2, and2 on C4: four, C1 and C2 always turned together)
+        four = self.senses(self.grouped("CC(C)(C)[C@H]1CC[C@@H](O)[C@@H](C)C1", [("and", [7, 9]), ("and", [4])]), [7, 9, 4])
+        self.assertEqual(len(four), 4)
+        self.assertEqual(len({(a * b, c) for a, b, c in four}), 2)
+        self.assertEqual(len({a * b for a, b, _ in four}), 1)
+        # (meso-butane-2,3-diol, and1 on both: one - its turned half is itself)
+        self.assertEqual(len(self.senses(self.grouped("C[C@@H](O)[C@H](C)O", [("and", [1, 3])]), [1, 3])), 1)
+        # (camphor: and1 on both bridgeheads, its enantiomers; on one alone, the turned half cannot be made in 3D)
+        camphor = "C[C@@]12CC[C@@H](C1(C)C)CC2=O"
+        self.assertEqual(len(self.senses(self.grouped(camphor, [("and", [1, 4])]), [1, 4])), 2)
+        self.assertEqual(len(self.senses(self.grouped(camphor, [("and", [1])]), [1, 4])), 1)
+
+    def test_a_bond_in_a_group_is_never_turned(self):
+        # (an and1 collection holding a double bond beside its centre - written by hand: RDKit's own writer leaves the bond out)
+        block = self.grouped("C/C=C/[C@H](O)CC", [("and", [3])]).replace("MDLV30/STERAC1 ATOMS=(1 4)", "MDLV30/STERAC1 ATOMS=(1 4) BONDS=(1 2)")
+        self.assertIn("BONDS=(1 2)", block)
+        made = self.worker.op_stereoisomers({"molblock": block, "open": {"atoms": [3], "bonds": [1]}, "most": 64, "inThreeD": True})
+        self.assertEqual(len(made["isomers"]), 2)
+        self.assertEqual({d["cis"] for i in made["isomers"] for d in i["configured"]["doubles"]}, {False})
+
+    def test_each_half_drawn_has_its_whole_configuration_and_no_group(self):
+        block = self.grouped("C[C@@H]1CCCC[C@H]1O", [("and", [1, 6])])
+        made = self.worker.op_stereoisomers({"molblock": block, "open": {"atoms": [1, 6], "bonds": []}, "most": 64, "inThreeD": True, "drawings": True})
+        self.assertEqual(len(made["isomers"]), 2)
+        for i in made["isomers"]:
+            self.assertNotIn("MDLV30/STE", i["molblock"])
+            self.assertEqual(len(i["configuration"]["centres"]), 2)
