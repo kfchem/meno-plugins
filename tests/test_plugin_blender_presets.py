@@ -84,6 +84,19 @@ class Manifest(unittest.TestCase):
             self.assertIn(fixed["value"], [c["value"] for c in background["choices"]], st["id"])
             self.assertTrue(fixed["why"], st["id"])
 
+    def test_a_look_that_fades_into_one_studio_says_which_studio_it_suits(self):
+        # (looks against the two studios, 2026-11-18: these five fade into one studio's backdrop, and stay as they are)
+        suits = {"marble": "cyclorama", "porcelain": "cyclorama", "slime": "cyclorama", "bubble": "paper", "silver": "paper"}
+        studios = {st["id"]: st["label"] for st in PRESETS["studios"]}
+        for look in PRESETS["looks"]:
+            # (Meno shows a look's description up to 200 characters)
+            self.assertLessEqual(len(look["description"]), 200, look["id"])
+            if look["id"] in suits:
+                self.assertIn(f"It suits the {studios[suits[look['id']]]}", look["description"], look["id"])
+            else:
+                for label in studios.values():
+                    self.assertNotIn(label, look["description"], look["id"])
+
     def test_each_motion_says_its_length_and_its_loop(self):
         for m in PRESETS["motions"]:
             text = (FOLDER / m["file"]).read_text(encoding="utf-8")
