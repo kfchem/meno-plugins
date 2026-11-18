@@ -24,13 +24,28 @@ def change(ctx, motion, nominal, a, b):
         piece=r.get("piece", 1), pieces=r.get("pieces", 1))
 
 
+#: Where a motion's module keeps the names the kit handed it, so that keying it again hands them anew.
+GIVEN = "_KIT_GIVEN"
+
+
 def run(ctx, motion, nominal, shared=(), **more):
     """The kit executed for this motion - and the files it shares with others (`shared`: the change module, say) after it -
-    their names handed to the motion's module (`motion`, its globals), and the module's `keyed()` called."""
+    their names handed to the motion's module (`motion`, its globals), and the module's `keyed()` called.
+
+    A name the motion's module binds itself - its LOOPS, which the renderer reads before the motion is keyed, say - is never
+    replaced by the kit's: a motion that binds one of the kit's names to something else is refused, the names said, before
+    anything is keyed. (The same module, `import os` in both, is no clash; nor are the names the kit handed it before.)"""
     space = {"CFG": settings(ctx, nominal, **more), "__name__": "motionkit"}
     home = os.path.dirname(os.path.abspath(motion["__file__"]))
     for name in ("motionkit.py", *shared):
         with open(os.path.join(home, name), encoding="utf-8") as f:
             exec(compile(f.read(), name, "exec"), space)
-    motion.update({k: v for k, v in space.items() if not k.startswith("__")})
+    given = {k: v for k, v in space.items() if not k.startswith("__")}
+    before = set(motion.get(GIVEN, ()))
+    clash = sorted(k for k, v in given.items() if k in motion and k not in before and motion[k] is not v)
+    if clash:
+        raise RuntimeError(f"the motion {os.path.basename(motion['__file__'])} binds names the kit (motionkit.py"
+                           f"{''.join(', ' + s for s in shared)}) binds too: {', '.join(clash)}. Rename them in the motion.")
+    motion.update(given)
+    motion[GIVEN] = tuple(given)
     motion["keyed"]()

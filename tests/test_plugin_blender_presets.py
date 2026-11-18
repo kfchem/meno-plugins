@@ -84,6 +84,19 @@ class Manifest(unittest.TestCase):
             self.assertIn(fixed["value"], [c["value"] for c in background["choices"]], st["id"])
             self.assertTrue(fixed["why"], st["id"])
 
+    def test_a_look_that_fades_into_one_studio_says_which_studio_it_suits(self):
+        # (looks against the two studios, 2026-11-18: these five fade into one studio's backdrop, and stay as they are)
+        suits = {"marble": "cyclorama", "porcelain": "cyclorama", "slime": "cyclorama", "bubble": "paper", "silver": "paper"}
+        studios = {st["id"]: st["label"] for st in PRESETS["studios"]}
+        for look in PRESETS["looks"]:
+            # (Meno shows a look's description up to 200 characters)
+            self.assertLessEqual(len(look["description"]), 200, look["id"])
+            if look["id"] in suits:
+                self.assertIn(f"It suits the {studios[suits[look['id']]]}", look["description"], look["id"])
+            else:
+                for label in studios.values():
+                    self.assertNotIn(label, look["description"], look["id"])
+
     def test_each_motion_says_its_length_and_its_loop(self):
         for m in PRESETS["motions"]:
             text = (FOLDER / m["file"]).read_text(encoding="utf-8")
@@ -91,6 +104,84 @@ class Manifest(unittest.TestCase):
             self.assertRegex(text, r'(?m)^(LOOPS = "(cycle|seamless)"|def LOOPS\(ctx\):)', m["id"])
             # (a change of molecules keys a piece, A becoming B; a motion of one molecule keys it)
             self.assertIn("def key_change(ctx, a, b):" if "change" in m.get("shortest", {}) else "def key(ctx):", text, m["id"])
+
+
+def bound(path):
+    """The names a file binds at its top level: each to ("import", the module) or ("own", None)."""
+    import ast
+    out = {}
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out[node.name] = ("own", None)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                out[a.asname or a.name.split(".")[0]] = ("import", a.name if a.asname else a.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                out[a.asname or a.name] = ("import", f"{node.module}.{a.name}")
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            for t in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                for n in ast.walk(t):
+                    if isinstance(n, ast.Name):
+                        out[n.id] = ("own", None)
+    return out
+
+
+def clashes(a, b):
+    """The names two files both bind, other than to the same module."""
+    return sorted(k for k in a.keys() & b.keys() if not (a[k][0] == b[k][0] == "import" and a[k][1] == b[k][1]))
+
+
+def motion_kit():
+    spec = importlib.util.spec_from_file_location("motion_kit_for_tests", FOLDER / "motion_kit.py")
+    kit = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(kit)
+    return kit
+
+
+class KitNames(unittest.TestCase):
+    """The kit's names are handed to a motion's module (motion_kit.run): a motion's own are never overwritten by them."""
+
+    def test_no_motion_binds_a_name_of_the_kit_or_of_the_change_module(self):
+        kit = bound(FOLDER / "motionkit.py")
+        change = bound(FOLDER / "change.py")
+        self.assertEqual(clashes(kit, change), [])
+        for m in PRESETS["motions"]:
+            own = bound(FOLDER / m["file"])
+            self.assertEqual(clashes(own, kit), [], m["id"])
+            if "change" in m.get("shortest", {}):
+                self.assertEqual(clashes(own, change), [], m["id"])
+
+    def _keyed(self, d, motion_names):
+        import os as os_
+        import types
+        (pathlib.Path(d) / "motionkit.py").write_text("import os\nLOOP = CFG['mode'] == 'loop'\ndef studio():\n    return 'kit'\n", encoding="utf-8")
+        calls = []
+        motion = {"__file__": str(pathlib.Path(d) / "motion_x.py"), "os": os_, "keyed": lambda: calls.append(1), **motion_names}
+        ctx = types.SimpleNamespace(request={"seconds": 6, "frames": 6, "fps": 1, "mode": "loop"})
+        return motion, ctx, calls
+
+    def test_the_kit_s_names_reach_the_motion_and_again_on_a_second_keying(self):
+        kit = motion_kit()
+        with tempfile.TemporaryDirectory() as d:
+            motion, ctx, calls = self._keyed(d, {"LOOPS": "seamless"})
+            kit.run(ctx, motion, 6.0)
+            kit.run(ctx, motion, 6.0)
+            self.assertEqual(calls, [1, 1])
+            self.assertIs(motion["LOOP"], True)
+            self.assertEqual(motion["studio"](), "kit")
+            # (its own name, which the renderer reads before keying, as it was)
+            self.assertEqual(motion["LOOPS"], "seamless")
+
+    def test_a_motion_binding_a_name_of_the_kit_is_refused_and_left_as_it_was(self):
+        kit = motion_kit()
+        with tempfile.TemporaryDirectory() as d:
+            motion, ctx, calls = self._keyed(d, {"LOOP": "its own", "studio": "its own too"})
+            with self.assertRaises(RuntimeError) as said:
+                kit.run(ctx, motion, 6.0)
+            self.assertIn("LOOP, studio", str(said.exception))
+            self.assertIn("motion_x.py", str(said.exception))
+            self.assertEqual((motion["LOOP"], motion["studio"], calls), ("its own", "its own too", []))
 
 
 class Withdrawn(unittest.TestCase):
