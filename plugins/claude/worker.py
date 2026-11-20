@@ -4,9 +4,16 @@ model, in a conversation*: docs/CONVERSATIONS.md, *Talking through a plugin*).
 
 One JSON object per line on stdin, one per line back on stdout:
 
-    {"id": 3, "op": "converse", "told": "...", "said": [...], "tools": [{"name": "list", "does": "..."}], "options": {...}, "key": "..."}
+    {"id": 3, "op": "converse", "told": "...", "said": [...], "tools": [{"name": "list", "does": "..."}], "options": {...}, "stream": true, "key": "..."}
+    {"id": 3, "partial": "..."}
     {"id": 3, "ok": true, "result": {"text": "...", "calls": [{"tool": "list", "args": {}}], "keep": {...}}}
     {"id": 3, "ok": false, "error": "..."}
+
+Asked with `stream` (a Meno that shows a reply as it comes), Claude's words are
+sent as they come, each part a line of its own (`partial`: the words it says on
+from the last), before the answer, which holds them all; while it thinks and says
+nothing for a minute, an empty part says it is still coming. Asked without, the
+reply is answered whole, as an earlier Meno waits for it.
 
     {"event": "ready", "version": "2.1.0"}
 
@@ -51,11 +58,15 @@ BASE_URL = "https://api.anthropic.com"
 #: credentials, or writes what it sends where Meno shows it (`ANTHROPIC_LOG`).
 FOREIGN = "ANTHROPIC_"
 
-#: How long one request may take, in all, in seconds - from asking to the reply's end: under Meno's own wait for an
-#: answer (10 minutes), a stalled read taken into account, so that a stalled service holds no later request behind it.
+#: How long one request answered whole may take, in all, in seconds - from asking to the reply's end: under Meno's own
+#: wait for an answer (10 minutes), a stalled read taken into account, so that a stalled service holds no later request
+#: behind it. A reply sent as it comes has none: Meno waits from each part of it.
 DEADLINE = 560.0
 #: How long the service may be silent, in seconds, before the read is given up.
 SILENT = 30.0
+#: How long a reply sent as it comes may say nothing - while Claude thinks - before an empty part says it is still
+#: coming, in seconds: well within Meno's wait from each part (10 minutes).
+STILL = 60.0
 
 #: The models offered, and the default (the manifest's choices).
 MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
@@ -63,9 +74,11 @@ MODEL = "claude-opus-5-5"
 #: How hard it thinks: the service's levels, and the default.
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 EFFORT = "medium"
-#: How long one reply may be, in tokens: the default, and the most.
+#: How long one reply may be, in tokens: the default, and the most - and the most of one answered whole, which an
+#: earlier Meno waits for whole, 10 minutes at most.
 REPLY_TOKENS = 16000
-MOST_REPLY_TOKENS = 16000
+MOST_REPLY_TOKENS = 64000
+MOST_WHOLE_TOKENS = 16000
 
 #: The service's betas this asks for: a thinking block whose conversation was edited since (Meno withholds a tool's
 #: answer once what it gave leaves the frame) is dropped, not refused; and, where the service declines, another of its
@@ -83,8 +96,9 @@ def client(key, transport=None):
     return anthropic.Anthropic(api_key=key, base_url=BASE_URL, max_retries=1, timeout=anthropic.Timeout(SILENT, connect=10.0), **more)
 
 
-def options_of(options):
-    """The options, as the manifest offers them - an option outside what it may be refused, never run as another."""
+def options_of(options, streamed=True):
+    """The options, as the manifest offers them - an option outside what it may be refused, never run as another; and a
+    reply longer than one answered whole may be, where it is not sent as it comes."""
     o = options or {}
     model = o.get("model", MODEL)
     if model not in MODELS:
@@ -95,6 +109,8 @@ def options_of(options):
     tokens = o.get("reply-tokens", REPLY_TOKENS)
     if isinstance(tokens, bool) or not isinstance(tokens, int) or not 1024 <= tokens <= MOST_REPLY_TOKENS:
         raise ValueError(f"A reply's length is a whole number from 1024 to {MOST_REPLY_TOKENS}")
+    if not streamed and tokens > MOST_WHOLE_TOKENS:
+        raise ValueError(f"A reply longer than {MOST_WHOLE_TOKENS} tokens is shown as it comes, which this Meno does not do: update Meno, or set a shorter one in Settings, Conversations")
     return model, effort, tokens
 
 
@@ -177,12 +193,14 @@ def words(e):
     return "The service could not be talked to"
 
 
-def converse(req, make=client):
-    """One request of a conversation, sent; Claude's reply as Meno reads it - or why not, in words."""
+def converse(req, make=client, say=None):
+    """One request of a conversation, sent; Claude's reply as Meno reads it - or why not, in words. Asked with `stream`,
+    each part of its words is given to `say` as it comes - an empty one where it has said nothing for STILL seconds."""
     key = req.get("key")
     if not isinstance(key, str) or not key:
         raise ValueError("No key was given: add it in Settings, Conversations")
-    model, effort, tokens = options_of(req.get("options"))
+    streamed = req.get("stream") is True and say is not None
+    model, effort, tokens = options_of(req.get("options"), streamed)
     betas = [BINDING] + ([FALLBACK] if not model.startswith("claude-haiku") else [])
     more = {"fallbacks": "default"} if FALLBACK in betas else {}
     begun = time.monotonic()
@@ -198,9 +216,20 @@ def converse(req, make=client):
             betas=betas,
             **more,
         ) as stream:
-            # (read to its end, or given up once it has taken too long in all)
-            for _ in stream:
-                if time.monotonic() - begun > DEADLINE:
+            # (read to its end - its words said as they come, where asked; or, answered whole, given up once it has taken
+            #  too long in all)
+            last = begun
+            for event in stream:
+                now = time.monotonic()
+                if streamed:
+                    delta = getattr(event, "delta", None) if event.type == "content_block_delta" else None
+                    if getattr(delta, "type", None) == "text_delta" and delta.text:
+                        say(delta.text)
+                        last = now
+                    elif now - last > STILL:
+                        say("")
+                        last = now
+                elif now - begun > DEADLINE:
                     raise RuntimeError("The service took too long to answer: try again in a minute")
             reply = stream.get_final_message()
     except anthropic.APIError as e:
@@ -218,18 +247,28 @@ def converse(req, make=client):
     return out
 
 
-def answer(line, make=client):
-    """One line asked, its answer: the key never in it."""
+def put(m):
+    """A line written to Meno."""
+    print(json.dumps(m, ensure_ascii=False), flush=True)
+
+
+def answer(line, make=client, out=put):
+    """One line asked, its answer - and, before it, each part of its words as it comes, written by `out`: the key never
+    in any of them."""
     try:
         req = json.loads(line)
     except ValueError:
         return {"ok": False, "error": "Not a request"}
     rid = req.get("id")
     key = req.get("key") if isinstance(req.get("key"), str) else None
+
+    def say(text):
+        out({"id": rid, "partial": text.replace(key, "[key]") if key else text})
+
     try:
         if req.get("op") != "converse":
             raise ValueError(f"Not something this plugin does: {req.get('op')}")
-        return {"id": rid, "ok": True, "result": converse(req, make)}
+        return {"id": rid, "ok": True, "result": converse(req, make, say)}
     except Exception as e:  # (said in words: what fails here is the request's, never the worker's end)
         said = str(e) or "It failed"
         if key:
@@ -238,10 +277,10 @@ def answer(line, make=client):
 
 
 def main():
-    print(json.dumps({"event": "ready", "version": VERSION}), flush=True)
+    put({"event": "ready", "version": VERSION})
     for line in sys.stdin:
         if line.strip():
-            print(json.dumps(answer(line), ensure_ascii=False), flush=True)
+            put(answer(line))
 
 
 if __name__ == "__main__":
