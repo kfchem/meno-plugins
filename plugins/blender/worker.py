@@ -42,7 +42,7 @@ import os
 import re
 import sys
 
-VERSION = "0.7.5"
+VERSION = "0.7.6"
 PROGRAM = "blender"
 SCRIPT = "render.py"
 PRESETS_SCRIPT = "presets.py"
@@ -147,6 +147,18 @@ def plugin_home():
     return None
 
 
+def background_of(film, options):
+    """The background asked for: a picture's (`background`), or a film's (`film-background`, a colour: a film keeps no
+    transparency). A film asked for on a transparent background - a job written by hand, or before a film had its own
+    choice, which says `background` alone - is refused, said so; never put on a colour that was not asked for."""
+    if not film:
+        return one_of(options.get("background", "transparent"), "background", BACKGROUNDS)
+    asked = options.get("film-background", options.get("background", "white"))
+    if asked == "transparent":
+        raise Refused("a film needs a background colour: White, Black or Grey")
+    return one_of(asked, "background", BACKGROUNDS)
+
+
 def settings_of(entry, options):
     """A render's settings, as render.py reads them: what Meno asked for, and the options chosen, each checked."""
     if not isinstance(entry, dict):
@@ -169,7 +181,7 @@ def settings_of(entry, options):
         "device": one_of(options.get("device", "auto"), "device", DEVICES),
         # (where what is learned of this computer is kept: the plugin's data folder, which this worker knows)
         **({"probe_dir": plugin_home()} if plugin_home() else {}),
-        "background": one_of(options.get("background", "transparent"), "background", BACKGROUNDS),
+        "background": background_of(film, options),
         "colours": one_of(options.get("colours", "neutral"), "colour transform", COLOURS),
         "key": number(options.get("key", 1), "The key light", 0, 10),
         "ambient": number(options.get("ambient", 1), "The light all round", 0, 10),
