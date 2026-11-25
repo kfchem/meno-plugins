@@ -6,8 +6,9 @@ Add's field looks a name up there only when the person chooses that row,
 and the first time Meno asks whether names may go to
 pubchem.ncbi.nlm.nih.gov. What goes there is the name looked up, in the
 body of one request, and nothing else: no header says who asks or from
-where (`User-Agent: meno-plugin-pubchem/<version>`, `Accept:
-application/json`, and what HTTP itself needs). It uses Python alone.
+where (`User-Agent: Python-urllib/<Python's version>`, the name Python's
+own library gives any script; `Accept: application/json`; and what HTTP
+itself needs). It uses Python alone.
 
 The plugin does no chemistry. It maps the fields PubChem gives to Meno's
 and refuses, in words, an answer that does not fit them; Meno reads the

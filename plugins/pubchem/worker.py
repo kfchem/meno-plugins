@@ -84,8 +84,9 @@ FORMULA_MOST = 300
 MOST_ASKED = 100
 
 #: The headers sent, all of them beside those HTTP itself needs (Host, Content-Length, Connection,
-#: Accept-Encoding: identity): none says who asks, or from where.
-HEADERS = {"User-Agent": f"meno-plugin-pubchem/{VERSION}", "Accept": "application/json"}
+#: Accept-Encoding: identity): none says who asks, or from where. The client's name is the one
+#: Python's own library gives any script, nothing of this plugin's or of Meno's.
+HEADERS = {"User-Agent": f"Python-urllib/{urllib.request.__version__}", "Accept": "application/json"}
 
 #: What the plugin says, in words.
 NOT_REACHED = "PubChem could not be reached"

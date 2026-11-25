@@ -141,12 +141,12 @@ class Request(Base):
         self.assertEqual(first["line"], "POST /rest/pug/compound/name/cids/JSON HTTP/1.1")
         self.assertEqual(first["body"], b"name=N%2CN-dim%C3%A9thyl%2Fx+%28stand-in%29")
         self.assertEqual(first["headers"], "Accept-Encoding: identity\nContent-Length: 43\n"
-                                           f"Host: 127.0.0.1:{port}\nUser-Agent: meno-plugin-pubchem/0.1.0\nAccept: application/json\n"
+                                           f"Host: 127.0.0.1:{port}\nUser-Agent: Python-urllib/{sys.version_info[0]}.{sys.version_info[1]}\nAccept: application/json\n"
                                            "Content-Type: application/x-www-form-urlencoded\nConnection: close\n\n")
         self.assertEqual(second["line"], f"GET /rest/pug/compound/cid/101/property/{PROPS}/JSON HTTP/1.1")
         self.assertEqual(second["body"], b"")
         self.assertEqual(second["headers"], "Accept-Encoding: identity\n"
-                                            f"Host: 127.0.0.1:{port}\nUser-Agent: meno-plugin-pubchem/0.1.0\nAccept: application/json\nConnection: close\n\n")
+                                            f"Host: 127.0.0.1:{port}\nUser-Agent: Python-urllib/{sys.version_info[0]}.{sys.version_info[1]}\nAccept: application/json\nConnection: close\n\n")
 
     def test_a_plus_in_a_name_is_sent_as_itself_not_as_a_space(self):
         s = self.stand_in(answer(404, NOT_FOUND))
