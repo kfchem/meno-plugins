@@ -1,0 +1,12 @@
+{
+  "id": "pubchem",
+  "name": "PubChem",
+  "version": "0.1.0",
+  "description": "Finds a structure by its name at PubChem, by its PUG REST service at pubchem.ncbi.nlm.nih.gov, for Quick Add: what goes there is the name looked up, when it is chosen to be looked up, and nothing else.",
+  "licence": "Apache-2.0",
+  "homepage": "https://pubchem.ncbi.nlm.nih.gov",
+  "environment": "uv",
+  "roles": [
+    {"role": "names", "hosts": ["pubchem.ncbi.nlm.nih.gov"]}
+  ]
+}
