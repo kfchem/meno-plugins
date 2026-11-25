@@ -43,7 +43,7 @@ The settings (all checked by the worker that wrote them):
     engine      "cycles" or "eevee"
     samples, denoise
     device      "auto" - the faster of the graphics processor and the processor, found once by a timing and kept -, "gpu" or "cpu"
-    background  "transparent", "white", "black" or "grey"
+    background  "transparent", "white", "black" or "grey" - a film's never "transparent"
     colours     "neutral", "agx" or "standard"
     key, ambient   the key light's and the light all round's strengths, as factors of Meno's
     softness    how soft the shadows are: the key light's width, in degrees
@@ -534,13 +534,14 @@ def assemble(frames, s, folder):
     The frames rendered, put over the background asked for - in the
     colours they were rendered in, so that white is white - and written:
     a picture, a PNG; a film, an MP4 (H.264), a video having no
-    transparency (a film asked for on a transparent background is put on
-    white). Done by Blender's sequencer, in a scene of its own.
+    transparency, so always on a colour (a film asked for on a transparent
+    background fails, said so: never put on a colour not asked for). Done
+    by Blender's sequencer, in a scene of its own.
     """
     out = os.path.join(folder, s["out"])
     background = s["background"]
     if s["film"] and background == "transparent":
-        background = "white"
+        raise SystemExit("render.py: a film needs a background colour: White, Black or Grey")
     if background == "transparent":
         os.replace(frames[0], out)
         return

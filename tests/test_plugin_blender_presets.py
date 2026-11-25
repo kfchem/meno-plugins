@@ -77,12 +77,15 @@ class Manifest(unittest.TestCase):
 
     def test_each_studio_is_its_own_background_said_so(self):
         renderer = json.loads((RENDERER / "manifest.json").read_text(encoding="utf-8"))
-        background = next(o for o in renderer["roles"][0]["options"] if o["id"] == "background")
+        options = {o["id"]: o for o in renderer["roles"][0]["options"]}
         for st in PRESETS["studios"]:
-            [fixed] = st["fixed"]
-            self.assertEqual(fixed["id"], "background", st["id"])
-            self.assertIn(fixed["value"], [c["value"] for c in background["choices"]], st["id"])
-            self.assertTrue(fixed["why"], st["id"])
+            # (a picture's background and a film's, each the studio's own colour)
+            picture, film = st["fixed"]
+            self.assertEqual((picture["id"], film["id"]), ("background", "film-background"), st["id"])
+            self.assertEqual(picture["value"], film["value"], st["id"])
+            for fixed in (picture, film):
+                self.assertIn(fixed["value"], [c["value"] for c in options[fixed["id"]]["choices"]], st["id"])
+                self.assertTrue(fixed["why"], st["id"])
 
     def test_each_motion_says_its_length_and_its_loop(self):
         for m in PRESETS["motions"]:

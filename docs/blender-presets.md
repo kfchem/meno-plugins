@@ -40,7 +40,7 @@ renderer's own job has. That is what using the renderer means.
 |---|---|
 | `version` | `1`. |
 | `scene` | Blender's scene, as the renderer built it from Meno's. |
-| `request` | What Meno asked: `width`, `height`, `fps`, `frames`, `seconds`, `mode` (`once` or `loop`), `background` (`transparent`, `white`, `black` or `grey`), `key`, `ambient` and `softness` (the light against the canvas's), the look's parts as asked, and `values`: the options of the preset plugins chosen from, together - so one preset plugin's option ids are never another's. |
+| `request` | What Meno asked: `width`, `height`, `fps`, `frames`, `seconds`, `mode` (`once` or `loop`), `background` (`transparent`, `white`, `black` or `grey`; a film's never `transparent`), `key`, `ambient` and `softness` (the light against the canvas's), the look's parts as asked, and `values`: the options of the preset plugins chosen from, together - so one preset plugin's option ids are never another's. |
 | `molecules` | Meno's molecules, in the order Meno wrote them. Each has `object` (its node), `atoms` and `bonds`. An atom: `object` (its ball), `index` (its atom in the molecule), `element`, `radius` (the ball's, in the scene's units) and `colour` (linear RGB, as Meno drew it). A bond: `objects` (its sticks: a double bond's lines are two, a line coloured by its atoms is two halves), `order`, `atoms` (the indices at its ends) and `centre` (a stick to a ring's centre: that ring's atoms). |
 | `camera` | Meno's camera. A motion may key it. |
 | `folder` | Where the job's files are, the preset's beside them. |
@@ -76,9 +76,11 @@ is the backdrop chosen, so it draws its backdrop whatever the background
 asked: the renderer has no rule against a studio and a transparent
 background, nor does Meno, which knows no plugin's studios. Where the
 studio is itself the background, its manifest says so (`fixed` on the
-renderer's `background`, as a motion fixes its renderer), and the card
-shows the background as the studio sets it, said and not to be changed,
-so that what the card says is what the picture is.
+renderer's `background`, a picture's, and on its `film-background`, a
+film's - the card shows the one that belongs to what is rendered - as a
+motion fixes its renderer), and the card shows the background as the
+studio sets it, said and not to be changed, so that what the card says is
+what the picture or film is.
 
 **A motion** (`motions[].file`):
 

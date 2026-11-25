@@ -1,7 +1,7 @@
 {
   "id": "blender-presets",
   "name": "Film looks and motions",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Looks, studios and film motions made with Blender's own materials, light and keys, for the Blender plugin to render.",
   "licence": "GPL-3.0-or-later",
   "homepage": "https://github.com/kfchem/meno-plugins/blob/main/docs/blender-presets.md",
@@ -132,6 +132,11 @@
             "id": "background",
             "value": "white",
             "why": "The paper sweep is the background"
+          },
+          {
+            "id": "film-background",
+            "value": "white",
+            "why": "The paper sweep is the background"
           }
         ]
       },
@@ -143,6 +148,11 @@
         "fixed": [
           {
             "id": "background",
+            "value": "black",
+            "why": "The cyclorama's wall is the background"
+          },
+          {
+            "id": "film-background",
             "value": "black",
             "why": "The cyclorama's wall is the background"
           }
