@@ -24,7 +24,7 @@ writes into the job's folder (each entry's `scene`), and the files of a
 preset plugin's look, studio or motion chosen (the entry's `presets`), which
 Meno puts there (docs/blender-presets.md) - and says the command
 Meno runs, apart from Meno, in the job's folder; `collect` says what the job made - a picture, a PNG, or a film,
-an MP4 - or, where it failed, why. One job for each entry.
+an MP4 (a film on a transparent background, two: docs/blender.md) - or, where it failed, why. One job for each entry.
 
 Blender is run as its manual says (docs.blender.org, Blender 5.2,
 "Command Line Arguments"): in the background (-b), with its factory
@@ -42,7 +42,7 @@ import os
 import re
 import sys
 
-VERSION = "0.7.6"
+VERSION = "0.7.7"
 PROGRAM = "blender"
 SCRIPT = "render.py"
 PRESETS_SCRIPT = "presets.py"
@@ -52,6 +52,12 @@ PICTURE = "picture.png"
 FELL_BACK = "Rendering on the processor (no graphics processor Blender can use)"
 FASTER = "Rendering on the processor (the faster one here)"
 FILM = "film.mp4"
+# a film on a transparent background: beside its film for the page, the same frames for slide programs (QuickTime, ProRes 4444,
+# its alpha kept)
+SLIDES = "film.mov"
+# the largest frame a film for the page is made in - its picture and its alpha, the two halves of each frame: what video
+# decoders in computers take, H.264 at level 5.1 (ITU-T H.264, Table A-1: at most 36864 macroblocks a frame, 4096 x 2304)
+FRAME_MOST = (4096, 2304)
 
 ENGINES = {"cycles", "eevee"}
 DEVICES = {"auto", "gpu", "cpu"}
@@ -148,15 +154,32 @@ def plugin_home():
 
 
 def background_of(film, options):
-    """The background asked for: a picture's (`background`), or a film's (`film-background`, a colour: a film keeps no
-    transparency). A film asked for on a transparent background - a job written by hand, or before a film had its own
-    choice, which says `background` alone - is refused, said so; never put on a colour that was not asked for."""
+    """The background asked for: a picture's (`background`), or a film's (`film-background`; a job that says `background`
+    alone - written by hand, or before a film had its own choice - is read for a film too)."""
     if not film:
         return one_of(options.get("background", "transparent"), "background", BACKGROUNDS)
-    asked = options.get("film-background", options.get("background", "white"))
-    if asked == "transparent":
-        raise Refused("a film needs a background colour: White, Black or Grey")
-    return one_of(asked, "background", BACKGROUNDS)
+    return one_of(options.get("film-background", options.get("background", "white")), "background", BACKGROUNDS)
+
+
+def even_up(n):
+    """`n`, or the even number just above it."""
+    return n + n % 2
+
+
+def matte_of(width, height):
+    """Where a film on a transparent background keeps its alpha, in each frame of its film for the page (docs/blender.md):
+    "below" its picture, or to its "right" - each half the film's size made even, the larger kept within FRAME_MOST -; none
+    where neither fits."""
+    w, h = even_up(width), even_up(height)
+    if w <= FRAME_MOST[0] and 2 * h <= FRAME_MOST[1]:
+        return "below"
+    if 2 * w <= FRAME_MOST[0] and h <= FRAME_MOST[1]:
+        return "right"
+    return None
+
+
+TOO_LARGE = (f"a film on a transparent background is at most {FRAME_MOST[0]} x {FRAME_MOST[1] // 2} or "
+             f"{FRAME_MOST[0] // 2} x {FRAME_MOST[1]} pixels: make it smaller, or choose a background colour")
 
 
 def settings_of(entry, options):
@@ -167,12 +190,19 @@ def settings_of(entry, options):
     if not isinstance(scene, str) or not NAME.match(scene):
         raise Refused("a scene has no name a job's file can have")
     film = switch(entry.get("film", False), "Whether it is a film")
+    width = whole(entry.get("width"), "The width", 16, 8192)
+    height = whole(entry.get("height"), "The height", 16, 8192)
+    background = background_of(film, options)
+    # (a film on a transparent background: where its alpha lies in its film for the page - one too large for that, refused)
+    matte = matte_of(width, height) if film and background == "transparent" else None
+    if film and background == "transparent" and matte is None:
+        raise Refused(TOO_LARGE)
     return {
         "scene": scene,
         "out": FILM if film else PICTURE,
         "film": film,
-        "width": whole(entry.get("width"), "The width", 16, 8192),
-        "height": whole(entry.get("height"), "The height", 16, 8192),
+        "width": width,
+        "height": height,
         "frames": whole(entry.get("frames", 1), "The frames", 1, 3600),
         "fps": whole(entry.get("fps", 1), "The frames a second", 1, 120),
         "engine": one_of(options.get("engine", "cycles"), "engine", ENGINES),
@@ -181,7 +211,8 @@ def settings_of(entry, options):
         "device": one_of(options.get("device", "auto"), "device", DEVICES),
         # (where what is learned of this computer is kept: the plugin's data folder, which this worker knows)
         **({"probe_dir": plugin_home()} if plugin_home() else {}),
-        "background": background_of(film, options),
+        "background": background,
+        **({"matte": matte, "slides": SLIDES} if matte else {}),
         "colours": one_of(options.get("colours", "neutral"), "colour transform", COLOURS),
         "key": number(options.get("key", 1), "The key light", 0, 10),
         "ambient": number(options.get("ambient", 1), "The light all round", 0, 10),
@@ -280,7 +311,16 @@ def op_collect(m):
     made = []
     for i, entry in enumerate(m.get("entries") or []):
         film = isinstance(entry, dict) and entry.get("film") is True
-        made.append({"entry": i, "file": FILM if film else PICTURE, "media": "video/mp4" if film else "image/png"})
+        if not film:
+            made.append({"entry": i, "file": PICTURE, "media": "image/png"})
+            continue
+        # (a film on a transparent background: its film for the page, saying where its alpha lies, and its film for slide programs)
+        s = settings_of(entry, m.get("options") or {})
+        if s.get("matte"):
+            made.append({"entry": i, "file": FILM, "media": "video/mp4", "matte": s["matte"]})
+            made.append({"entry": i, "file": SLIDES, "media": "video/quicktime"})
+        else:
+            made.append({"entry": i, "file": FILM, "media": "video/mp4"})
     result = {"made": made}
     # (the graphics processor asked for, and Blender fell back to the processor: said once, which the card may show - nothing where it rendered on the graphics processor or was not asked to)
     if FELL_BACK in (m.get("log") or "") or FASTER in (m.get("log") or ""):
