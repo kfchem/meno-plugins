@@ -197,6 +197,87 @@ class FromSmiles(unittest.TestCase):
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
+class ConfigurationBesideTheBlock(unittest.TestCase):
+    """Every answer that carries a drawing carries its configuration beside it (`configuration_written`), by the
+    block's own atom and bond numbers, so that Meno lays its drawing out from what was read, not from this layout's
+    wedges (a ring of 36 or more is laid out here as a polygon, and a centre on it reads as stating nothing)."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def given_back(self, block, configuration, reader=None):
+        """The block read back with every mark of its own taken off, given the configuration that came beside it."""
+        mol = (reader or Chem.MolFromMolBlock)(block)
+        Chem.RemoveStereochemistry(mol)
+        return Chem.MolToSmiles(self.worker.configured(mol, configuration))
+
+    def test_a_smiles_drawn_comes_with_each_centre_and_double_bond_it_gives(self):
+        ring = "C" * 33
+        cases = {
+            # (L-alanine written both ways, the H implicit; L-proline, a ring closure at its centre)
+            "C[C@H](N)C(=O)O": (1, 0),
+            "N[C@@H](C)C(=O)O": (1, 0),
+            "OC(=O)[C@@H]1CCCN1": (1, 0),
+            "F[C@](Cl)(Br)[H]": (1, 0),
+            # (a methyl lactone of a ring of 36; an E and a Z double bond in a ring of 36)
+            f"C[C@@H]1{ring}C(=O)O1": (1, 0),
+            f"C1{'C' * 16}/C=C/{'C' * 16}C1": (0, 1),
+            f"C1{'C' * 16}/C=C\\{'C' * 16}C1": (0, 1),
+            "C/C=C\\C=C\\C(=O)O": (0, 2),
+            "CC(C)O": (0, 0),
+        }
+        for smiles, (centres, doubles) in cases.items():
+            got = self.worker.op_from_smiles({"smiles": smiles})
+            c = got["configuration"]
+            self.assertEqual((len(c["centres"]), len(c["doubles"])), (centres, doubles), smiles)
+            self.assertEqual(self.given_back(got["molblock"], c), Chem.CanonSmiles(smiles), smiles)
+
+    def test_is_given_back_as_the_molecule_it_was_read_from(self):
+        # (`configured` and `configuration_written` each the other's inverse)
+        for smiles in ["C[C@@H](O)[C@H](C)O", "C[C@H]1CC[C@@H](C)CC1", "C/C=C/[C@@H](C)Cl"]:
+            mol = Chem.MolFromSmiles(smiles)
+            bare = Chem.Mol(mol)
+            Chem.RemoveStereochemistry(bare)
+            again = self.worker.configured(bare, self.worker.configuration_written(mol))
+            self.assertEqual(Chem.MolToSmiles(again), Chem.MolToSmiles(mol), smiles)
+
+    def test_a_drawing_from_3d_comes_with_it(self):
+        from rdkit.Chem import AllChem
+
+        for smiles in ["C[C@H](N)C(=O)O", "C/C=C/CC"]:
+            mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+            self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=3), 0)
+            got = self.worker.op_drawing_of({"molblock": Chem.MolToMolBlock(mol)})
+            self.assertEqual(self.given_back(got["molblock"], got["configuration"]), Chem.CanonSmiles(smiles), smiles)
+
+    def test_each_stereoisomer_drawn_comes_with_its_own(self):
+        block = self.worker.op_from_smiles({"smiles": "CC(O)C(O)C"})["molblock"]
+        got = self.worker.op_stereoisomers({"molblocks": [block], "most": 10, "drawings": True, "inThreeD": False, "open": {"atoms": [1, 3], "bonds": []}})
+        self.assertEqual(len(got["isomers"]), 3)
+        for one in got["isomers"]:
+            self.assertEqual(self.given_back(one["molblock"], one["configuration"]), Chem.CanonSmiles(one["smiles"]))
+
+    def test_an_adduct_written_as_drawn_keeps_its_numbers(self):
+        # (an amine-BF3 adduct with a centre beside its N, drawn with its arrow: written back as drawn, `as_drawn`)
+        mol = Chem.MolFromSmiles("CC[C@H](C)N(C)(C)->B(F)(F)F", sanitize=False)
+        mol.UpdatePropertyCache(strict=False)
+        Chem.FastFindRings(mol)
+        Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
+        from rdkit.Chem import rdDepictor
+
+        rdDepictor.Compute2DCoords(mol)
+        got = self.worker.op_stereoisomers({"molblocks": [Chem.MolToV3KMolBlock(mol, kekulize=False)], "most": 10, "drawings": True, "inThreeD": False, "open": {"atoms": [], "bonds": []}})
+        (one,) = got["isomers"]
+        back = self.worker.read(one["molblock"])
+        self.assertTrue(self.worker.held_dipolar(back))
+        self.assertEqual(len(one["configuration"]["centres"]), 1)
+        self.assertEqual(self.given_back(one["molblock"], one["configuration"], self.worker.read), one["smiles"])
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
 class SmilesNotRead(unittest.TestCase):
     """A SMILES that cannot be read: said so, and what RDKit made of it given as facts (`smiles_read`). Why, in words,
     is Meno's (src/lib/chem/smilesWhy, with its own tests)."""
@@ -248,7 +329,8 @@ class AWorkflowsSearch(unittest.TestCase):
         spec.loader.exec_module(cls.worker)
 
     def test_gives_rdkits_own_conformers_frame_for_frame(self):
-        # (the known answer, RDKit's own: ETKDG v3 at the worker's seed, MMFF94 optimisation, in the order embedded)
+        # (the known answer, RDKit's own: ETKDG v3 at the worker's seed, MMFF94 optimisation - all at once, then each on
+        #  to the worker's tolerances - in the order embedded)
         from rdkit.Chem import rdForceFieldHelpers
         mol = Chem.MolFromSmiles("C[C@H](O)CC")
         made = self.worker.conformers(mol, count=12)
@@ -258,12 +340,47 @@ class AWorkflowsSearch(unittest.TestCase):
         params.pruneRmsThresh = -1.0
         params.numThreads = 0
         ids = list(rdDistGeom.EmbedMultipleConfs(raw, numConfs=12, params=params))
-        energy = {cid: e for cid, (_, e) in zip(ids, rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(raw, numThreads=0, maxIters=self.worker.STEPS, mmffVariant="MMFF94"))}
+        rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(raw, numThreads=0, maxIters=self.worker.STEPS, mmffVariant="MMFF94")
+        props = rdForceFieldHelpers.MMFFGetMoleculeProperties(raw)
+        energy = {}
+        for cid in ids:
+            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(raw, props, confId=cid)
+            ff.Minimize(maxIts=self.worker.STEPS, forceTol=1e-6, energyTol=1e-12)
+            energy[cid] = ff.CalcEnergy()
         self.assertEqual(made["frames"], [[round(v, 4) for p in raw.GetConformer(c).GetPositions() for v in p] for c in ids])
         for got, cid in zip(made["energies"], ids):
             self.assertAlmostEqual(got, energy[cid] / self.worker.KCAL_PER_HARTREE, places=9)
         rows = {r["label"]: r["text"] for r in made["how"]}
         self.assertEqual(rows["Kept"], "12 of 12 embedded (12 sought)")
+        self.assertEqual(rows["Optimised"], "MMFF94, at most 2000 steps and 2000 more to a gradient of 1e-06")
+
+    def test_optimises_each_conformer_as_far_as_its_tolerances_so_that_optimising_again_moves_none(self):
+        # (MMFF94 on to a gradient of 1e-6: optimised again to the same, no atom of any conformer moves 1e-4 A - where RDKit's
+        #  own stopping point, 1e-4, leaves some to move on)
+        from rdkit.Chem import rdForceFieldHelpers
+        self.assertEqual((self.worker.FORCE_TOL, self.worker.ENERGY_TOL), (1e-6, 1e-12))
+        mol = Chem.AddHs(Chem.MolFromSmiles("COc1ccc(COC(C)C(C)CC)cc1"))
+        params = rdDistGeom.ETKDGv3()
+        params.randomSeed = self.worker.SEED
+        params.pruneRmsThresh = -1.0
+        ids = list(rdDistGeom.EmbedMultipleConfs(mol, numConfs=8, params=params))
+        loose = Chem.Mol(mol)
+        rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(loose, numThreads=0, maxIters=self.worker.STEPS)
+        done = self.worker.mmff_tight(mol, ids, "MMFF94", self.worker.STEPS, 2)
+        self.assertEqual([more for more, _ in done], [0] * len(ids))
+
+        def moved_on(m, cid):
+            props = rdForceFieldHelpers.MMFFGetMoleculeProperties(m)
+            before = m.GetConformer(cid).GetPositions()
+            # (a copy, kept while its force field works on its places: the force field holds none of its own)
+            copy = Chem.Mol(m)
+            ff = rdForceFieldHelpers.MMFFGetMoleculeForceField(copy, props, confId=cid)
+            ff.Minimize(maxIts=self.worker.STEPS, forceTol=1e-6, energyTol=1e-12)
+            after = ff.Positions()
+            return max(abs(after[k] - before.flat[k]) for k in range(len(after)))
+
+        self.assertLess(max(moved_on(mol, cid) for cid in ids), 1e-4)
+        self.assertGreater(max(moved_on(loose, cid) for cid in ids), 1e-4)
 
     def test_makes_each_enantiomer_itself_whatever_else_it_is_sent(self):
         # (butan-2-ol's two enantiomers: what the page once sent to have one made as the other's mirror image, in the
@@ -557,6 +674,25 @@ class HowManyTried(unittest.TestCase):
             self.worker.op_conformers({**held(EtaBound.ferrocene()), "count": 3, "options": {"threads": 3}})
         self.assertEqual({name for name, _ in seen}, {"EmbedMultipleConfs", "MMFFOptimizeMoleculeConfs", "UFFOptimizeMoleculeConfs", "OptimizeMoleculeConfs"})
         self.assertEqual({n for _, n in seen}, {3})
+        # (and each conformer's optimisation on to the worker's tolerances, in as many processes - where there are enough
+        #  conformers to be worth starting them; fewer, here)
+        pools = []
+        real = self.worker.tight_pool
+        with mock.patch.object(self.worker, "tight_pool", lambda n: pools.append(n) or real(n)):
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST, threads=3)
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST)
+            self.worker.conformers(Chem.MolFromSmiles("CCCO"), count=self.worker.POOL_LEAST - 1, threads=3)
+        # (every core where none is asked - as many as the rule allows, and none where that is one)
+        cores = min(os.cpu_count() or 1, self.worker.MOST_THREADS, 61 if os.name == "nt" else self.worker.MOST_THREADS)
+        self.assertEqual(pools, [3] + ([cores] if cores > 1 else []))
+
+    def test_gives_the_same_conformers_on_one_thread_as_on_several(self):
+        # (the second pass in processes of their own answers as it does here: every frame and energy alike)
+        mol = Chem.MolFromSmiles("COc1ccc(COC(C)C)cc1")
+        one = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=1)
+        four = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=4)
+        self.assertEqual(one["frames"], four["frames"])
+        self.assertEqual(one["energies"], four["energies"])
 
     def test_gives_its_threads_to_a_metal_held_in_uff_and_to_one_that_stands_in(self):
         # (the two other places the optimising of a molecule with metals is asked for: a palladacycle, whose metal UFF types,
@@ -617,6 +753,121 @@ class HowManyTried(unittest.TestCase):
         self.assertEqual(self.worker.MOST_CONFORMERS, 5000)
         for n in (501, 1000, 5000):
             self.assertEqual(self.worker.options_of({"count": n})["count"], n)
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
+class SecondPassInProcesses(unittest.TestCase):
+    """The second MMFF pass in processes of their own (worker `mmff_tight`, `tight_pool`): as Meno runs the worker - a
+    line in, a line out, nothing else written, gone when its input ends or it is killed, its processes with it - and
+    done here where they cannot be had, the same answer either way."""
+
+    SMILES = "COc1ccc(COC(C)C)cc1"
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def run_worker(self):
+        import subprocess, sys
+        import json
+        ran = subprocess.Popen([sys.executable, "-u", "-B", str(WORKER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=WORKER.parent)
+        # (its pipes closed once the test is done, however it ends: nothing left open behind it)
+        self.addCleanup(lambda: [p.close() for p in (ran.stdin, ran.stdout) if p is not None and not p.closed])
+        # (its first line says it is ready, as Meno waits for)
+        self.assertEqual(json.loads(ran.stdout.readline())["event"], "ready")
+        return ran
+
+    def ask(self, ran, count):
+        import json
+        molblock = self.worker.op_from_smiles({"smiles": self.SMILES})["molblock"]
+        ran.stdin.write(json.dumps({"id": 7, "op": "conformers", "molblock": molblock, "count": count, "options": {"threads": 3}}) + "\n")
+        ran.stdin.flush()
+        return json.loads(ran.stdout.readline())
+
+    def children(self, pid):
+        import subprocess
+        found = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True).stdout.split()
+        return [int(p) for p in found]
+
+    def gone(self, pids, within=30):
+        deadline = time.time() + within
+        while time.time() < deadline:
+            left = []
+            for p in pids:
+                try:
+                    os.kill(p, 0)
+                    left.append(p)
+                except OSError:
+                    pass
+            if not left:
+                return True
+            time.sleep(0.2)
+        return False
+
+    def test_answers_one_line_writes_nothing_else_and_ends_with_its_input_its_processes_with_it(self):
+        ran = self.run_worker()
+        try:
+            answer = self.ask(ran, self.worker.POOL_LEAST + 8)
+            self.assertEqual((answer["id"], answer["ok"]), (7, True), answer)
+            self.assertEqual(len(answer["result"]["isomers"][0]["frames"]), self.worker.POOL_LEAST + 8)
+            # (the same answer as the worker gives here, in no process of its own)
+            here = self.worker.op_conformers({"molblock": self.worker.op_from_smiles({"smiles": self.SMILES})["molblock"], "count": self.worker.POOL_LEAST + 8, "options": {"threads": 1}})
+            self.assertEqual(answer["result"]["isomers"][0]["frames"], here["isomers"][0]["frames"])
+            started = self.children(ran.pid) if os.name != "nt" else []
+            if os.name != "nt":
+                self.assertTrue(started, "the second pass ran in no process of its own")
+            ran.stdin.close()
+            self.assertEqual(ran.wait(timeout=60), 0)
+            self.assertEqual(ran.stdout.read(), "")
+            self.assertTrue(self.gone(started))
+        finally:
+            if ran.poll() is None:
+                ran.kill()
+
+    @unittest.skipIf(os.name == "nt", "the processes it started are found by pgrep")
+    def test_its_processes_end_when_it_is_killed(self):
+        import signal
+        ran = self.run_worker()
+        try:
+            self.assertTrue(self.ask(ran, self.worker.POOL_LEAST + 8)["ok"])
+            started = self.children(ran.pid)
+            self.assertTrue(started)
+            os.kill(ran.pid, signal.SIGKILL)
+            ran.wait(timeout=30)
+            self.assertTrue(self.gone(started))
+        finally:
+            if ran.poll() is None:
+                ran.kill()
+
+    def test_does_it_here_where_its_processes_cannot_be_had_the_same_answer(self):
+        from unittest import mock
+        from concurrent.futures.process import BrokenProcessPool
+        mol = Chem.MolFromSmiles(self.SMILES)
+        here = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=1)
+        for failure in (BrokenProcessPool("gone"), OSError("no processes")):
+            def broken(n, failure=failure):
+                self.worker._pool["pool"], self.worker._pool["size"] = object(), n
+                raise failure
+            with mock.patch.object(self.worker, "tight_pool", broken):
+                made = self.worker.conformers(mol, count=self.worker.POOL_LEAST + 8, threads=3)
+            self.assertEqual((made["frames"], made["energies"]), (here["frames"], here["energies"]))
+            self.assertEqual((self.worker._pool["pool"], self.worker._pool["size"]), (None, 0))
+
+    def test_keeps_its_processes_while_as_many_are_asked_and_starts_others_for_another_number(self):
+        two = self.worker.tight_pool(2)
+        try:
+            self.assertIs(self.worker.tight_pool(2), two)
+            three = self.worker.tight_pool(3)
+            self.assertIsNot(three, two)
+            self.assertIs(self.worker.tight_pool(3), three)
+            # (those for two let go: nothing more is taken by them)
+            with self.assertRaises(RuntimeError):
+                two.submit(abs, -1)
+        finally:
+            self.worker._pool["pool"].shutdown(wait=True)
+            self.worker._pool["pool"], self.worker._pool["size"] = None, 0
 
 
 @unittest.skipUnless(Chem, "RDKit is not installed here")
@@ -1761,6 +2012,37 @@ class MinimiseWithRestraints(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, r"^A conformer search holds restraints only where the molecule has no metal"):
                 self.worker.conformers(Chem.MolFromSmiles("N[Pt](N)(Cl)Cl"), count=2, rows=rows)
 
+    def test_a_search_holding_restraints_optimises_each_to_the_same_tolerances_and_says_so(self):
+        # (butane's C-C-C-C held at 60 degrees by a strength: each conformer optimised, its restraint held, to a gradient of
+        #  1e-6 - every one converged within its steps - and its row saying it)
+        from unittest import mock
+        asked = []
+        real = self.worker.restrained_field
+
+        class Watched:
+            def __init__(self, ff):
+                self.ff = ff
+
+            def Minimize(self, **k):
+                more = self.ff.Minimize(**k)
+                asked.append((k, more))
+                return more
+
+            def __getattr__(self, name):
+                return getattr(self.ff, name)
+
+        def watched(*a, **k):
+            field, make = real(*a, **k)
+            return field, lambda cid, rows: Watched(make(cid, rows))
+
+        rows = [{"kind": "dihedral", "atoms": [0, 1, 2, 3], "value": 60.0, "strength": 50.0}]
+        with mock.patch.object(self.worker, "restrained_field", watched):
+            made = self.worker.conformers(Chem.MolFromSmiles("CCCC"), count=6, rows=rows)
+        self.assertEqual({r["label"]: r["text"] for r in made["how"]}["Optimised"], "MMFF94, at most 2000 steps, to a gradient of 1e-06")
+        self.assertEqual(len(asked), 6)
+        self.assertEqual({(k["forceTol"], k["energyTol"], k["maxIts"]) for k, _ in asked}, {(1e-6, 1e-12, 2000)})
+        self.assertEqual([more for _, more in asked], [0] * 6)
+
     def test_a_search_embeds_a_distance_held_at_its_value(self):
         # (pyridine's N and BH3's B, two parts, held at 0.9 of Alvarez's radii together, 3.21 A: laid where ETKDG
         #  lays parts, a hold never brought them together - 17 A off at any strength)
@@ -1803,3 +2085,87 @@ class MinimiseWithRestraints(unittest.TestCase):
         self.assertEqual((job["args"][1].endswith("minimise_job.py"), job["reads"]), (True, ["minimised.json"]))
         self.assertEqual(given["restraints"][0]["strength"], 50.0)
         self.assertEqual(len(given["start"]), 3 * mol.GetNumAtoms())
+
+
+@unittest.skipUnless(Chem, "RDKit is not installed here")
+class AndOrGroups(unittest.TestCase):
+    """What Meno takes of a structure whose centres are drawn in AND or OR groups (V3000 STERACn, STERELn; Meno's
+    foundation part 7): the toolkit turns each group as a whole, never in part, and tries each half in 3D; Meno reads
+    each half back by the group's centres named in `open`, and decides the rest (Workspace/chem/groupHalves). And a
+    configuration Meno gives a centre the block wedges is the one made, group or none."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("plugin_rdkit", WORKER)
+        cls.worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.worker)
+
+    def grouped(self, smiles, groups):
+        """`smiles` drawn, wedged as it gives, its centres put in `groups` - each ("and" or "or", atoms) - as V3000."""
+        from rdkit.Chem import AllChem
+
+        mol = Chem.RWMol(Chem.MolFromSmiles(smiles))
+        AllChem.Compute2DCoords(mol)
+        kinds = {"and": Chem.StereoGroupType.STEREO_AND, "or": Chem.StereoGroupType.STEREO_OR}
+        mol.SetStereoGroups([Chem.CreateStereoGroup(kinds[k], mol, atoms) for k, atoms in groups])
+        Chem.WedgeMolBonds(mol, mol.GetConformer())
+        return Chem.MolToV3KMolBlock(mol)
+
+    def senses(self, block, atoms):
+        """Each isomer the block gives, as the senses of `atoms` read back, in their order."""
+        made = self.worker.op_stereoisomers({"molblock": block, "open": {"atoms": atoms, "bonds": []}, "most": 64, "inThreeD": True})
+        out = []
+        for i in made["isomers"]:
+            got = {c["atom"]: c for c in i["configured"]["centres"]}
+            out.append(tuple(got[a]["sense"] * self.worker.parity(got[a]["neighbours"], sorted(got[a]["neighbours"])) for a in atoms))
+        return out
+
+    def test_configured_turns_a_centre_whatever_the_block_wedges_and_a_group_is_still_turned_whole(self):
+        # (asked as Meno asks - `op_stereoisomers` with `configured`: with no group, the configuration given is the one made; with
+        #  and1 on both centres, both halves still come back, the group turned whole - the configuration given chooses neither, and
+        #  Meno reads each half back by its centres, never by its place in the answer)
+        turned_smiles = "C[C@H]1CCCC[C@@H]1O"
+        for groups, made in (([], {turned_smiles}), ([("and", [1, 6])], {turned_smiles, "C[C@@H]1CCCC[C@H]1O"})):
+            block = self.grouped("C[C@@H]1CCCC[C@H]1O", groups)
+            mol, _ = self.worker.stereo_read([block])
+            as_drawn = self.worker.configuration_of_isomer(mol, [1, 6], [])
+            turned = {"centres": [{**c, "sense": -c["sense"]} for c in as_drawn["centres"]], "doubles": []}
+            self.assertEqual(Chem.MolToSmiles(self.worker.configured(mol, turned)), turned_smiles, groups)
+            got = self.worker.op_stereoisomers({"molblock": block, "configured": turned, "open": {"atoms": [1, 6], "bonds": []}, "most": 64, "inThreeD": True})
+            self.assertEqual({i["smiles"] for i in got["isomers"]}, made, groups)
+            self.assertEqual(len(got["isomers"]), len(made), groups)
+
+    def test_a_group_is_turned_whole_never_in_part_and_each_half_tried_in_3d(self):
+        # (trans-2-methylcyclohexan-1-ol, and1 on both centres: its two halves, each centre with the other)
+        two = self.senses(self.grouped("C[C@@H]1CCCC[C@H]1O", [("and", [1, 6])]), [1, 6])
+        self.assertEqual(len(two), 2)
+        self.assertEqual({(a == b) for a, b in two}, {two[0][0] == two[0][1]})
+        # (or1: the same two)
+        self.assertEqual(len(self.senses(self.grouped("C[C@@H]1CCCC[C@H]1O", [("or", [1, 6])]), [1, 6])), 2)
+        # (4-tert-butyl-2-methylcyclohexan-1-ol, and1 on C1 and C2, and2 on C4: four, C1 and C2 always turned together)
+        four = self.senses(self.grouped("CC(C)(C)[C@H]1CC[C@@H](O)[C@@H](C)C1", [("and", [7, 9]), ("and", [4])]), [7, 9, 4])
+        self.assertEqual(len(four), 4)
+        self.assertEqual(len({(a * b, c) for a, b, c in four}), 2)
+        self.assertEqual(len({a * b for a, b, _ in four}), 1)
+        # (meso-butane-2,3-diol, and1 on both: one - its turned half is itself)
+        self.assertEqual(len(self.senses(self.grouped("C[C@@H](O)[C@H](C)O", [("and", [1, 3])]), [1, 3])), 1)
+        # (camphor: and1 on both bridgeheads, its enantiomers; on one alone, the turned half cannot be made in 3D)
+        camphor = "C[C@@]12CC[C@@H](C1(C)C)CC2=O"
+        self.assertEqual(len(self.senses(self.grouped(camphor, [("and", [1, 4])]), [1, 4])), 2)
+        self.assertEqual(len(self.senses(self.grouped(camphor, [("and", [1])]), [1, 4])), 1)
+
+    def test_a_bond_in_a_group_is_never_turned(self):
+        # (an and1 collection holding a double bond beside its centre - written by hand: RDKit's own writer leaves the bond out)
+        block = self.grouped("C/C=C/[C@H](O)CC", [("and", [3])]).replace("MDLV30/STERAC1 ATOMS=(1 4)", "MDLV30/STERAC1 ATOMS=(1 4) BONDS=(1 2)")
+        self.assertIn("BONDS=(1 2)", block)
+        made = self.worker.op_stereoisomers({"molblock": block, "open": {"atoms": [3], "bonds": [1]}, "most": 64, "inThreeD": True})
+        self.assertEqual(len(made["isomers"]), 2)
+        self.assertEqual({d["cis"] for i in made["isomers"] for d in i["configured"]["doubles"]}, {False})
+
+    def test_each_half_drawn_has_its_whole_configuration_and_no_group(self):
+        block = self.grouped("C[C@@H]1CCCC[C@H]1O", [("and", [1, 6])])
+        made = self.worker.op_stereoisomers({"molblock": block, "open": {"atoms": [1, 6], "bonds": []}, "most": 64, "inThreeD": True, "drawings": True})
+        self.assertEqual(len(made["isomers"]), 2)
+        for i in made["isomers"]:
+            self.assertNotIn("MDLV30/STE", i["molblock"])
+            self.assertEqual(len(i["configuration"]["centres"]), 2)

@@ -70,9 +70,36 @@ class Prepare(unittest.TestCase):
         self.assertEqual((plain["shading"], plain["outlines"]), ("lit", "none"))
 
     def test_a_film_is_written_as_one(self):
-        said = ask("prepare", step="render", entries=[{**SCENE, "film": True, "frames": 240, "fps": 30}], options={"quality": "lossless", "background": "black"})
+        said = ask("prepare", step="render", entries=[{**SCENE, "film": True, "frames": 240, "fps": 30}], options={"quality": "lossless", "film-background": "black"})
         settings = json.loads({f["name"]: f["text"] for f in said["result"]["jobs"][0]["files"]}["render.json"])
         self.assertEqual((settings["out"], settings["frames"], settings["fps"], settings["quality"], settings["background"]), ("film.mp4", 240, 30, "lossless", "black"))
+
+    def test_a_card_offers_a_transparent_background_for_a_picture_and_a_colour_for_a_film(self):
+        m = json.loads((FOLDER / "manifest.json").read_text(encoding="utf-8"))
+        options = m["roles"][0]["options"]
+        # (as Meno's card shows a plugin's options, told what is rendered: one shown only while `kind` is one of its `when`)
+        shown = lambda kind: [o for o in options if "when" not in o or kind in o["when"]["in"]]
+        for kind, values, default in (("picture", ["transparent", "white", "black", "grey"], "transparent"), ("film", ["white", "black", "grey"], "white")):
+            [background] = [o for o in shown(kind) if o["label"] == "Background"]
+            self.assertEqual([c["value"] for c in background["choices"]], values, kind)
+            self.assertEqual(background["default"], default, kind)
+
+    def test_a_films_background_is_its_own_and_a_colour(self):
+        def background(entry, options):
+            said = ask("prepare", step="render", entries=[entry], options=options)
+            return json.loads({f["name"]: f["text"] for f in said["result"]["jobs"][0]["files"]}["render.json"])["background"]
+        film = {**SCENE, "film": True, "frames": 24, "fps": 24}
+        # (Meno's card gives every option's value, the one not shown too: a film takes its own, a picture its own)
+        card = {"background": "transparent", "film-background": "grey"}
+        self.assertEqual(background(film, card), "grey")
+        self.assertEqual(background(SCENE, card), "transparent")
+        self.assertEqual(background(film, {}), "white")
+        self.assertEqual(background(SCENE, {}), "transparent")
+        # (a film asked for on a transparent background - by hand, or by a job that says `background` alone - is refused, said so)
+        for options in ({"film-background": "transparent"}, {"background": "transparent"}):
+            said = ask("prepare", step="render", entries=[film], options=options)
+            self.assertEqual((said["ok"], said["error"]), (False, "Blender: a film needs a background colour: White, Black or Grey."), options)
+        self.assertEqual(background(film, {"background": "black"}), "black")
 
     def test_the_data_folder_the_worker_runs_from_goes_to_the_job_for_what_is_kept(self):
         import types
@@ -250,6 +277,25 @@ class RenderScriptNames(unittest.TestCase):
         self.assertIn(f"FASTER = {worker.FASTER!r}".replace("'", '"'), src)
 
 
+class FilmOnTransparent(unittest.TestCase):
+    """A film is a video with no transparency: render.py `assemble`, asked for one on a transparent background, fails with
+    a sentence that says why - never a film put on a colour not asked for. Read without Blender: it stops before Blender's
+    own calls."""
+
+    def test_fails_said_so(self):
+        import ast
+        tree = ast.parse((FOLDER / "render.py").read_text(encoding="utf-8"))
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "assemble")
+        ns = {"os": os}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "render.py", "exec"), ns)
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(SystemExit) as raised:
+            ns["assemble"]([os.path.join(d, "f_0001.png")], {"film": True, "background": "transparent", "out": "film.mp4"}, d)
+        self.assertEqual(str(raised.exception), "render.py: a film needs a background colour: White, Black or Grey")
+        # (and said to Meno as the job's why, as every sentence render.py stops with)
+        said = ask("collect", step="render", entries=[SCENE], options={}, files={}, log=f"Blender 5.2.2\n{raised.exception}\nBlender quit\n", ended="failed")
+        self.assertEqual(said["result"], {"why": "A film needs a background colour: White, Black or Grey"})
+
+
 class FilmStrips(unittest.TestCase):
     """How the frames a film plays become the sequencer's image strips (render.py `strip_runs`): a strip reads every file from
     its first file's folder, so each run from one folder is a strip of its own."""
@@ -347,11 +393,11 @@ class Manifest(unittest.TestCase):
             self.assertTrue((FOLDER / f).read_text(encoding="utf-8").startswith("# SPDX-License-Identifier: GPL-3.0-or-later"), f)
         # (the options it declares: each id the worker reads)
         ids = {o["id"] for o in m["roles"][0]["options"]}
-        self.assertEqual(ids, {"engine", "samples", "denoise", "device", "background", "colours", "key", "ambient", "softness", "quality"})
+        self.assertEqual(ids, {"engine", "samples", "denoise", "device", "background", "film-background", "colours", "key", "ambient", "softness", "quality"})
         # (each in the part of Render's card it belongs to: the background and the lights with the scene, the rest with how it
         # is rendered)
         sections = {o["id"]: o.get("section") for o in m["roles"][0]["options"]}
-        self.assertEqual({k for k, v in sections.items() if v == "scene"}, {"background", "key", "ambient", "softness"})
+        self.assertEqual({k for k, v in sections.items() if v == "scene"}, {"background", "film-background", "key", "ambient", "softness"})
         self.assertEqual({k for k, v in sections.items() if v == "render"}, {"engine", "samples", "denoise", "device", "colours", "quality"})
 
 

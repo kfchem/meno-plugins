@@ -61,7 +61,9 @@ and from nothing else:
   may use, %Mem its memory, a number of 8-byte words or with a unit.
 - The route section, begun by "#", ended by a blank line: the method and
   basis set, empirical dispersion (the "EmpiricalDispersion" keyword: GD2,
-  GD3 or GD3BJ), the job (SP, Opt, Freq) and any keywords besides. What
+  GD3 or GD3BJ, each only for a method the manual's tables give its
+  parameters for, unless the keywords give them; by the method, GD3BJ
+  where it has them, none where not), the job (SP, Opt, Freq) and any keywords besides. What
   is typed into it - the method, the basis set, the keywords - names no
   program and no file: a workspace's steps may come from someone else,
   and run when its Run is pressed. So it holds no External, the keyword
@@ -125,6 +127,17 @@ NUMBER = {s: i + 1 for i, s in enumerate(SYMBOLS)}
 # The job, as its keywords say it ("SP" is the default, said all the same).
 JOBS = {"opt freq": "Opt Freq", "opt": "Opt", "freq": "Freq", "sp": "SP"}
 DISPERSIONS = {"none": "", "GD2": "EmpiricalDispersion=GD2", "GD3": "EmpiricalDispersion=GD3", "GD3BJ": "EmpiricalDispersion=GD3BJ"}
+# The functionals Gaussian 16 has each model's parameters for, by its own keyword names (gaussian.com, "Density
+# Functional (DFT) Methods", G16 Rev. C.01, section "Dispersion": its three tables). Any other method has none of
+# the program's own - HF and every wave-function method among them.
+DISPERSION_PARAMETERS = {
+    "GD2": {"B97D", "B2PLYPD", "MPW2PLYPD", "PBEPBE", "BLYP", "B3LYP", "BP86", "TPSSTPSS"},
+    "GD3": {"B2PLYPD3", "B97D3", "B3LYP", "BLYP", "PBE1PBE", "TPSSTPSS", "PBEPBE", "BP86", "BPBE", "B3PW91", "BMK", "CAM-B3LYP", "LC-WPBE", "M05", "M052X", "M06L", "M06", "M062X", "M06HF", "PW6B95D3"},
+    "GD3BJ": {"B2PLYPD3", "B97D3", "PW6B95D3", "B3LYP", "BLYP", "PBE1PBE", "TPSSTPSS", "PBEPBE", "BP86", "BPBE", "B3PW91", "BMK", "CAM-B3LYP", "LC-WPBE"},
+}
+# The dispersion that follows the method (the card's default): GD3BJ where Gaussian 16 has its parameters for the
+# method, none where it has not (the maintainer's B3LYP with GD3BJ, kept where it can be).
+BY_METHOD = "by-method"
 # %Mem's value: a number, of 8-byte words, or with its unit after it, no space between.
 MEMORY = re.compile(r"^\d+(KB|MB|GB|TB|KW|MW|GW|TW)?$", re.IGNORECASE)
 # What the title section should not hold: these, control characters, and (the input being ASCII) anything else.
@@ -154,6 +167,51 @@ def route_words(value, what):
         if w.startswith("external") or (len(w) >= 3 and "external".startswith(w)):
             raise Refused(f'{what} may not hold "{word}": External runs a program the input names, and a step\'s input runs on whichever computer its workspace is opened on')
     return text
+
+
+def functional_of(method):
+    """The functional a method's text names, as the manual's tables name it: upper case, a leading R, U or RO (a
+    restricted or unrestricted wavefunction) taken off where what is left is one of them; else the text as it is."""
+    name = method.strip().upper()
+    known = set().union(*DISPERSION_PARAMETERS.values())
+    for cut in ("RO", "R", "U"):
+        if name.startswith(cut) and name[len(cut):] in known and name not in known:
+            return name[len(cut):]
+    return name
+
+
+def dispersion_route(choice, method, keywords):
+    """The route's EmpiricalDispersion for the card's choice and the method typed: by the method, GD3BJ where Gaussian 16
+    has its parameters for it and none where it has not; a model chosen by name, refused in words where Gaussian 16
+    has no parameters of its own for the method - unless the keywords give them, as internal options (IOp), which
+    the manual allows."""
+    if choice == BY_METHOD:
+        return DISPERSIONS["GD3BJ"] if functional_of(method) in DISPERSION_PARAMETERS["GD3BJ"] else ""
+    route = DISPERSIONS.get(choice)
+    if route is None:
+        raise Refused(f"no empirical dispersion is called {choice!r}")
+    name = functional_of(method)
+    if route and name not in DISPERSION_PARAMETERS[choice] and "IOP(" not in keywords.upper().replace(" ", ""):
+        raise Refused(f"Gaussian 16 has no {choice} parameters for {method.strip() or 'this method'}: choose None, or a method it has them for{also(choice, name)}")
+    return route
+
+
+# The keywords that carry a model as their own (the manual's notes under its tables: B2PLYPD for GD2, B2PLYPD3 for
+# GD3BJ): a functional typed without the suffix is pointed to the one with it.
+CARRIED_AS = {"GD2": "D", "GD3BJ": "D3"}
+# Another name a functional is often typed under, and the one the manual's tables give it.
+TABLE_NAME = {"PBE0": "PBE1PBE"}
+
+
+def also(choice, name):
+    """What the refusal adds, where it can name the keyword that has the parameters: the functional's own keyword that
+    carries the model (B2PLYP: B2PLYPD3), or its name in the manual's tables (PBE0: PBE1PBE)."""
+    suffix = CARRIED_AS.get(choice)
+    if suffix and name + suffix in DISPERSION_PARAMETERS[choice]:
+        return f" ({name}{suffix} carries it as its own)"
+    if TABLE_NAME.get(name) in DISPERSION_PARAMETERS[choice]:
+        return f" (Gaussian names {name} {TABLE_NAME[name]})"
+    return ""
 
 
 def whole(value, what, least=None):
@@ -238,10 +296,8 @@ def gaussian_input(name, molecule, options, sections=(), job_route=None, modify=
     job = job_route or JOBS.get(options.get("job", "sp"))
     if job is None:
         raise Refused(f"no job is called {options.get('job')!r}")
-    dispersion = DISPERSIONS.get(options.get("dispersion", "none"))
-    if dispersion is None:
-        raise Refused(f"no empirical dispersion is called {options.get('dispersion')!r}")
     more = route_words(options.get("keywords", ""), "The keywords")
+    dispersion = dispersion_route(options.get("dispersion", "none"), method, more)
     lines.append(" ".join(p for p in ("#", chemistry, dispersion, job, more) if p))
     lines.append("")
 

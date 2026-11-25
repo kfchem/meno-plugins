@@ -1,7 +1,7 @@
 {
   "id": "blender",
   "name": "Blender",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "uses": [
     {
       "name": "Blender",
@@ -151,6 +151,12 @@
         {
           "id": "background",
           "section": "scene",
+          "when": {
+            "id": "kind",
+            "in": [
+              "picture"
+            ]
+          },
           "label": "Background",
           "type": "choice",
           "choices": [
@@ -172,6 +178,33 @@
             }
           ],
           "default": "transparent"
+        },
+        {
+          "id": "film-background",
+          "section": "scene",
+          "when": {
+            "id": "kind",
+            "in": [
+              "film"
+            ]
+          },
+          "label": "Background",
+          "type": "choice",
+          "choices": [
+            {
+              "value": "white",
+              "label": "White"
+            },
+            {
+              "value": "black",
+              "label": "Black"
+            },
+            {
+              "value": "grey",
+              "label": "Grey"
+            }
+          ],
+          "default": "white"
         },
         {
           "id": "colours",
