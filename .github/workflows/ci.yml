@@ -45,6 +45,11 @@ jobs:
           - plugin: claude
             needs: anthropic
             tests: tests/test_plugin_claude.py
+          # (the Blender plugin's join of a film's frames with their alpha runs in Blender's own Python, which has numpy: tested
+          # in an environment that has it, installed from a lock that holds it)
+          - plugin: rdkit
+            needs: numpy
+            tests: tests/test_plugin_blender_film.py
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: |
