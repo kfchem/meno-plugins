@@ -191,7 +191,7 @@ class Converse(unittest.TestCase):
         manifest = json.loads((ROOT / "plugins/claude/manifest.json").read_text())
         options = {o["id"]: o for o in manifest["roles"][0]["options"]}
         self.assertEqual((options["model"]["default"], options["effort"]["default"], options["reply-tokens"]["default"], options["reply-tokens"]["max"]), (self.worker.MODEL, self.worker.EFFORT, self.worker.REPLY_TOKENS, self.worker.MOST_REPLY_TOKENS))
-        self.assertEqual((self.worker.MODEL, self.worker.EFFORT, self.worker.MOST_REPLY_TOKENS), ("claude-opus-5-5", "medium", 16000))
+        self.assertEqual((self.worker.MODEL, self.worker.EFFORT, self.worker.REPLY_TOKENS, self.worker.MOST_REPLY_TOKENS, self.worker.MOST_WHOLE_TOKENS), ("claude-opus-5-5", "medium", 16000, 64000, 16000))
 
     def test_options_are_the_manifests_and_one_outside_them_refused_never_run_as_another(self):
         service = Service(message([{"type": "text", "text": "ok"}], model="claude-haiku-5-5"))
@@ -263,6 +263,74 @@ class Converse(unittest.TestCase):
         self.assertLess(fresh.DEADLINE + fresh.SILENT, 600)
         made = fresh.client(KEY)
         self.assertEqual((made.timeout.read, made.timeout.connect, made.max_retries), (fresh.SILENT, 10.0, 1))
+
+
+@unittest.skipUnless(THERE, "needs the plugin's environment (its lock)")
+class AsItComes(unittest.TestCase):
+    def setUp(self):
+        self.worker = load()
+
+    def test_asked_to_stream_its_words_go_to_meno_as_they_come_and_its_answer_holds_them_all(self):
+        events = [
+            {"type": "message_start", "message": {"id": "msg_1", "type": "message", "role": "assistant", "content": [], "model": "claude-opus-5-5", "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 10, "output_tokens": 1}}},
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "Its formula."}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig-3"}},
+            {"type": "content_block_stop", "index": 0},
+            {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "It is "}},
+            {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "ethanol."}},
+            {"type": "content_block_stop", "index": 1},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 5}},
+            {"type": "message_stop"},
+        ]
+        lines = []
+        got = self.worker.answer(json.dumps(asked(stream=True)), Service(sse(events)).make(self.worker), lines.append)
+        self.assertTrue(got["ok"], got)
+        # (its words alone, each part as it came, under the request's id - never its thinking)
+        self.assertEqual(lines, [{"id": 7, "partial": "It is "}, {"id": 7, "partial": "ethanol."}])
+        self.assertEqual(got["result"]["text"], "It is ethanol.")
+        # (asked without - an earlier Meno - answered whole: no part)
+        whole = []
+        self.assertTrue(self.worker.answer(json.dumps(asked()), Service(sse(events)).make(self.worker), whole.append)["ok"])
+        self.assertEqual(whole, [])
+
+    def test_while_it_says_nothing_an_empty_part_says_it_is_still_coming(self):
+        self.worker.STILL = 0.0
+        lines = []
+        got = self.worker.answer(json.dumps(asked(stream=True)), Service(message([{"type": "thinking", "signature": "sig-4"}, {"type": "text", "text": "Done."}])).make(self.worker), lines.append)
+        self.assertTrue(got["ok"], got)
+        self.assertIn({"id": 7, "partial": ""}, lines)
+        self.assertEqual("".join(x["partial"] for x in lines), "Done.")
+
+    def test_a_reply_as_it_comes_may_be_64000_tokens_and_one_answered_whole_16000(self):
+        service = Service()
+        self.assertTrue(self.worker.answer(json.dumps(asked(stream=True, options={"reply-tokens": 64000})), service.make(self.worker), lambda m: None)["ok"])
+        self.assertEqual(service.body()["max_tokens"], 64000)
+        self.assertEqual(self.worker.answer(json.dumps(asked(stream=True, options={"reply-tokens": 65024})), service.make(self.worker), lambda m: None)["error"], "A reply's length is a whole number from 1024 to 64000")
+        # (an earlier Meno waits for a reply whole: one longer than it can wait for refused, saying why - never cut to fit)
+        whole = Service()
+        got = self.worker.answer(json.dumps(asked(options={"reply-tokens": 32000})), whole.make(self.worker), lambda m: None)
+        self.assertEqual(got["error"], "A reply longer than 16000 tokens is shown as it comes, which this Meno does not do: update Meno, or set a shorter one in Settings, Conversations")
+        self.assertEqual(whole.asked, [])
+        manifest = json.loads((ROOT / "plugins/claude/manifest.json").read_text())
+        option = next(o for o in manifest["roles"][0]["options"] if o["id"] == "reply-tokens")
+        self.assertEqual((option["default"], option["max"]), (self.worker.REPLY_TOKENS, self.worker.MOST_REPLY_TOKENS))
+
+    def test_a_reply_as_it_comes_is_not_given_up_for_its_whole_time(self):
+        events = message([{"type": "text", "text": "Slow"}])
+        parts = [e + b"\n\n" for e in events.split(b"\n\n") if e]
+
+        def slow():
+            for p in parts:
+                time.sleep(0.05)
+                yield p
+
+        self.worker.DEADLINE = 0.1
+        lines = []
+        got = self.worker.answer(json.dumps(asked(stream=True)), lambda key: self.worker.client(key, httpx2.Client(transport=httpx2.MockTransport(lambda r: httpx2.Response(200, content=slow(), headers={"content-type": "text/event-stream"})))), lines.append)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["result"]["text"], "Slow")
 
 
 if __name__ == "__main__":
