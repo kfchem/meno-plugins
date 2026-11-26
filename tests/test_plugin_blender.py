@@ -74,12 +74,12 @@ class Prepare(unittest.TestCase):
         settings = json.loads({f["name"]: f["text"] for f in said["result"]["jobs"][0]["files"]}["render.json"])
         self.assertEqual((settings["out"], settings["frames"], settings["fps"], settings["quality"], settings["background"]), ("film.mp4", 240, 30, "lossless", "black"))
 
-    def test_a_card_offers_a_transparent_background_for_a_picture_and_a_colour_for_a_film(self):
+    def test_a_card_offers_a_transparent_background_for_a_picture_and_a_film(self):
         m = json.loads((FOLDER / "manifest.json").read_text(encoding="utf-8"))
         options = m["roles"][0]["options"]
         # (as Meno's card shows a plugin's options, told what is rendered: one shown only while `kind` is one of its `when`)
         shown = lambda kind: [o for o in options if "when" not in o or kind in o["when"]["in"]]
-        for kind, values, default in (("picture", ["transparent", "white", "black", "grey"], "transparent"), ("film", ["white", "black", "grey"], "white")):
+        for kind, values, default in (("picture", ["transparent", "white", "black", "grey"], "transparent"), ("film", ["transparent", "white", "black", "grey"], "white")):
             [background] = [o for o in shown(kind) if o["label"] == "Background"]
             self.assertEqual([c["value"] for c in background["choices"]], values, kind)
             self.assertEqual(background["default"], default, kind)
@@ -95,10 +95,17 @@ class Prepare(unittest.TestCase):
         self.assertEqual(background(SCENE, card), "transparent")
         self.assertEqual(background(film, {}), "white")
         self.assertEqual(background(SCENE, {}), "transparent")
-        # (a film asked for on a transparent background - by hand, or by a job that says `background` alone - is refused, said so)
-        for options in ({"film-background": "transparent"}, {"background": "transparent"}):
-            said = ask("prepare", step="render", entries=[film], options=options)
-            self.assertEqual((said["ok"], said["error"]), (False, "Blender: a film needs a background colour: White, Black or Grey."), options)
+        # (a film on a transparent background: where its alpha lies, and its film with transparency, written as settings)
+        said = ask("prepare", step="render", entries=[{**film, "width": 1280, "height": 720}], options={"film-background": "transparent"})
+        settings = json.loads({f["name"]: f["text"] for f in said["result"]["jobs"][0]["files"]}["render.json"])
+        self.assertEqual((settings["background"], settings["out"], settings["matte"], settings["slides"]), ("transparent", "film.mp4", "below", "film.mov"))
+        # (a job that says `background` alone is read for a film too)
+        self.assertEqual(background(film, {"background": "transparent"}), "transparent")
+        # (no alpha nor second film for a film on a colour)
+        said = ask("prepare", step="render", entries=[film], options={"film-background": "white"})
+        settings = json.loads({f["name"]: f["text"] for f in said["result"]["jobs"][0]["files"]}["render.json"])
+        self.assertNotIn("matte", settings)
+        self.assertNotIn("slides", settings)
         self.assertEqual(background(film, {"background": "black"}), "black")
 
     def test_the_data_folder_the_worker_runs_from_goes_to_the_job_for_what_is_kept(self):
@@ -278,22 +285,34 @@ class RenderScriptNames(unittest.TestCase):
 
 
 class FilmOnTransparent(unittest.TestCase):
-    """A film is a video with no transparency: render.py `assemble`, asked for one on a transparent background, fails with
-    a sentence that says why - never a film put on a colour not asked for. Read without Blender: it stops before Blender's
-    own calls."""
+    """A film on a transparent background (worker.py `matte_of`, `op_collect`): its alpha below its picture where the two fit
+    within what video decoders take - 4096 x 2304, H.264 level 5.1 - else to its right; else refused, said so. Two files
+    said made, which is which."""
 
-    def test_fails_said_so(self):
-        import ast
-        tree = ast.parse((FOLDER / "render.py").read_text(encoding="utf-8"))
-        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "assemble")
-        ns = {"os": os}
-        exec(compile(ast.Module(body=[fn], type_ignores=[]), "render.py", "exec"), ns)
-        with tempfile.TemporaryDirectory() as d, self.assertRaises(SystemExit) as raised:
-            ns["assemble"]([os.path.join(d, "f_0001.png")], {"film": True, "background": "transparent", "out": "film.mp4"}, d)
-        self.assertEqual(str(raised.exception), "render.py: a film needs a background colour: White, Black or Grey")
-        # (and said to Meno as the job's why, as every sentence render.py stops with)
-        said = ask("collect", step="render", entries=[SCENE], options={}, files={}, log=f"Blender 5.2.2\n{raised.exception}\nBlender quit\n", ended="failed")
-        self.assertEqual(said["result"], {"why": "A film needs a background colour: White, Black or Grey"})
+    def test_its_alpha_lies_below_or_to_the_right_or_it_is_refused(self):
+        self.assertEqual(worker.matte_of(1920, 1080), "below")
+        self.assertEqual(worker.matte_of(1280, 720), "below")
+        # (each half made even: 1151 high is 1152, its two 2304)
+        self.assertEqual(worker.matte_of(4096, 1151), "below")
+        self.assertEqual(worker.matte_of(1440, 1440), "right")
+        self.assertEqual(worker.matte_of(2048, 2304), "right")
+        self.assertIsNone(worker.matte_of(2560, 1440))
+        self.assertIsNone(worker.matte_of(3840, 2160))
+        film = {**SCENE, "film": True, "frames": 24, "fps": 24, "width": 3840, "height": 2160}
+        said = ask("prepare", step="render", entries=[film], options={"film-background": "transparent"})
+        self.assertEqual((said["ok"], said["error"]), (False, "Blender: a film on a transparent background is at most 4096 x 1152 or 2048 x 2304 pixels: make it smaller, or choose a background colour."))
+        # (the same film on a colour, made)
+        self.assertTrue(ask("prepare", step="render", entries=[film], options={"film-background": "grey"})["ok"])
+
+    def test_says_it_made_its_film_for_the_page_and_its_film_for_slide_programs(self):
+        film = {**SCENE, "film": True, "frames": 24, "fps": 24, "width": 1440, "height": 1440}
+        said = ask("collect", step="render", entries=[film], options={"film-background": "transparent"}, files={}, log="", ended="done")
+        self.assertEqual(said["result"]["made"], [
+            {"entry": 0, "file": "film.mp4", "media": "video/mp4", "matte": "right"},
+            {"entry": 0, "file": "film.mov", "media": "video/quicktime"},
+        ])
+        said = ask("collect", step="render", entries=[film], options={"film-background": "black"}, files={}, log="", ended="done")
+        self.assertEqual(said["result"]["made"], [{"entry": 0, "file": "film.mp4", "media": "video/mp4"}])
 
 
 class FilmStrips(unittest.TestCase):

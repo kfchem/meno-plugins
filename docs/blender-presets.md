@@ -40,7 +40,7 @@ renderer's own job has. That is what using the renderer means.
 |---|---|
 | `version` | `1`. |
 | `scene` | Blender's scene, as the renderer built it from Meno's. |
-| `request` | What Meno asked: `width`, `height`, `fps`, `frames`, `seconds`, `mode` (`once` or `loop`), `background` (`transparent`, `white`, `black` or `grey`; a film's never `transparent`), `key`, `ambient` and `softness` (the light against the canvas's), the look's parts as asked, and `values`: the options of the preset plugins chosen from, together - so one preset plugin's option ids are never another's. |
+| `request` | What Meno asked: `width`, `height`, `fps`, `frames`, `seconds`, `mode` (`once` or `loop`), `background` (`transparent`, `white`, `black` or `grey`, for a picture and a film alike), `key`, `ambient` and `softness` (the light against the canvas's), the look's parts as asked, and `values`: the options of the preset plugins chosen from, together - so one preset plugin's option ids are never another's. |
 | `molecules` | Meno's molecules, in the order Meno wrote them. Each has `object` (its node), `atoms` and `bonds`. An atom: `object` (its ball), `index` (its atom in the molecule), `element`, `radius` (the ball's, in the scene's units) and `colour` (linear RGB, as Meno drew it). A bond: `objects` (its sticks: a double bond's lines are two, a line coloured by its atoms is two halves), `order`, `atoms` (the indices at its ends) and `centre` (a stick to a ring's centre: that ring's atoms). |
 | `camera` | Meno's camera. A motion may key it. |
 | `folder` | Where the job's files are, the preset's beside them. |

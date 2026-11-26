@@ -38,12 +38,14 @@ The settings (all checked by the worker that wrote them):
 
     scene       the glTF file's name, in the job's folder
     out         the name to write: a picture's (PNG) or a film's (MP4)
+    matte, slides   a film on a transparent background's: where the alpha lies in each frame of its MP4 ("below" or "right"),
+                and the name of the film with transparency written beside it (QuickTime, ProRes 4444)
     film        a film, not a picture
     width, height, frames, fps
     engine      "cycles" or "eevee"
     samples, denoise
     device      "auto" - the faster of the graphics processor and the processor, found once by a timing and kept -, "gpu" or "cpu"
-    background  "transparent", "white", "black" or "grey" - a film's never "transparent"
+    background  "transparent", "white", "black" or "grey"
     colours     "neutral", "agx" or "standard"
     key, ambient   the key light's and the light all round's strengths, as factors of Meno's
     softness    how soft the shadows are: the key light's width, in degrees
@@ -529,28 +531,60 @@ def even_up(n):
     return n + n % 2
 
 
-def assemble(frames, s, folder):
+def joined(np, rgba, matte):
     """
-    The frames rendered, put over the background asked for - in the
-    colours they were rendered in, so that white is white - and written:
-    a picture, a PNG; a film, an MP4 (H.264), a video having no
-    transparency, so always on a colour (a film asked for on a transparent
-    background fails, said so: never put on a colour not asked for). Done
-    by Blender's sequencer, in a scene of its own.
+    A frame of a film on a transparent background as its film for the page
+    has it: `rgba`, its rows from the top, 8 bits a channel, unassociated
+    alpha (a PNG's), as two halves of one picture with no transparency - its
+    colours multiplied by their alpha (on black), and beside them its alpha
+    as grey - the alpha "below" the colours or to their "right". Each half
+    is the frame's size made even, the frame in its bottom-left corner, as a
+    padded film has it; what pads it is clear. `np` is numpy, as Blender's
+    own Python has it.
     """
-    out = os.path.join(folder, s["out"])
-    background = s["background"]
-    if s["film"] and background == "transparent":
-        raise SystemExit("render.py: a film needs a background colour: White, Black or Grey")
-    if background == "transparent":
-        os.replace(frames[0], out)
-        return
+    h, w = rgba.shape[:2]
+    half = np.zeros((even_up(h), even_up(w), 4), dtype=np.uint8)
+    half[half.shape[0] - h:, :w] = rgba
+    a = half[:, :, 3:4].astype(np.uint32)
+    # (rounded to the nearest: 255 x 255 / 255 is 255, and half of 255 is 128)
+    colours = ((half[:, :, :3].astype(np.uint32) * a + 127) // 255).astype(np.uint8)
+    grey = np.repeat(half[:, :, 3:4], 3, axis=2)
+    return np.concatenate([colours, grey], axis=0 if matte == "below" else 1)
+
+
+def joined_frames(frames, s, folder):
+    """Each frame of a film on a transparent background joined with its alpha (`joined`), a PNG of its own: their files, in
+    order. Read and written by Blender as they are - their bytes, no colour transform - and numpy between."""
+    import numpy as np
+
+    os.makedirs(os.path.join(folder, "joined"), exist_ok=True)
+    made, out = [], None
+    for k, f in enumerate(frames):
+        im = bpy.data.images.load(f)
+        w, h = im.size
+        px = np.empty(w * h * 4, dtype=np.float32)
+        im.pixels.foreach_get(px)
+        bpy.data.images.remove(im)
+        # (Blender's rows run from the bottom: turned to run from the top, and back)
+        rgba = np.round(px.reshape(h, w, 4)[::-1] * 255).astype(np.uint8)
+        frame = joined(np, rgba, s["matte"])
+        if out is None:
+            out = bpy.data.images.new("Joined", frame.shape[1], frame.shape[0], alpha=False)
+            out.file_format = "PNG"
+        rgb1 = np.concatenate([frame, np.full(frame.shape[:2] + (1,), 255, dtype=np.uint8)], axis=2)
+        out.pixels.foreach_set((rgb1[::-1].astype(np.float32) / 255).ravel())
+        path = os.path.join(folder, "joined", f"j_{k + 1:05d}.png")
+        out.filepath_raw = path
+        out.save()
+        made.append(path)
+    return made
+
+
+def sequenced(frames, s, size, under):
+    """A scene of its own whose sequencer plays `frames` over the colour `under` - none: over nothing - at `size`, each frame
+    at its own size in its corner, never scaled."""
     made = bpy.data.scenes.new("Assembled")
-    # (a film's video, H.264 in 4:2:0, keeps colour for each 2x2 pixels, and its encoder refuses an odd side: where a side
-    # Meno asked for is odd, the video is a pixel wider or taller, the frames at their own size in its corner and the
-    # background asked for in that pixel. A picture keeps its own size)
-    made.render.resolution_x = even_up(s["width"]) if s["film"] else s["width"]
-    made.render.resolution_y = even_up(s["height"]) if s["film"] else s["height"]
+    made.render.resolution_x, made.render.resolution_y = size
     made.render.resolution_percentage = 100
     made.render.fps = s["fps"]
     made.render.fps_base = 1.0
@@ -562,8 +596,9 @@ def assemble(frames, s, folder):
     made.render.use_sequencer = True
     made.render.use_compositing = False
     strips = made.sequence_editor_create().strips
-    under = strips.new_effect(name="Background", type="COLOR", channel=1, frame_start=1, length=len(frames))
-    under.color = BACKGROUNDS[background]
+    if under is not None:
+        colour = strips.new_effect(name="Background", type="COLOR", channel=1, frame_start=1, length=len(frames))
+        colour.color = under
     for k, (d, names, start) in enumerate(strip_runs(frames)):
         over = strips.new_image(name=f"Rendered {k + 1}", filepath=os.path.join(d, names[0]), channel=2, frame_start=start)
         for name in names[1:]:
@@ -573,33 +608,79 @@ def assemble(frames, s, folder):
         # in the canvas's middle on its pixels - its corner - each pixel the frame's own, none drawn between two)
         over.transform.filter = "NEAREST"
         over.transform.scale_x = over.transform.scale_y = 1.0
+    return made
+
+
+def video(made, s, folder, out, how):
+    """The sequencer's scene `made` written as a video named `out`: `how` "H264" (an MP4) or "PRORES" (QuickTime, ProRes 4444
+    with its alpha)."""
     image = made.render.image_settings
-    if s["film"]:
-        image.media_type = "VIDEO"
-        image.file_format = "FFMPEG"
-        image.color_mode = "RGB"
-        ff = made.render.ffmpeg
+    image.media_type = "VIDEO"
+    image.file_format = "FFMPEG"
+    ff = made.render.ffmpeg
+    # (the codec first: Blender offers a colour mode with alpha only for a codec that keeps it)
+    if how == "H264":
         ff.format = "MPEG4"
         ff.codec = "H264"
         ff.constant_rate_factor = QUALITIES[s["quality"]]
         ff.ffmpeg_preset = "GOOD"
-        ff.audio_codec = "NONE"
-        stem = os.path.join(folder, "film-")
-        made.render.filepath = stem
-        say("Making the film")
-        bpy.ops.render.render(animation=True, scene=made.name)
-        # (Blender names a video after its frames: it is given the name Meno asked for)
-        videos = sorted(glob.glob(stem + "*.mp4"))
-        if not videos:
-            raise SystemExit("render.py: Blender wrote no film")
-        os.replace(videos[-1], out)
+        image.color_mode = "RGB"
     else:
+        ff.format = "QUICKTIME"
+        ff.codec = "PRORES"
+        ff.ffmpeg_prores_profile = "4444"
+        image.color_mode = "RGBA"
+    ff.audio_codec = "NONE"
+    stem = os.path.join(folder, os.path.splitext(out)[0] + "-")
+    made.render.filepath = stem
+    bpy.ops.render.render(animation=True, scene=made.name)
+    # (Blender names a video after its frames: it is given the name Meno asked for)
+    videos = sorted(glob.glob(stem + "*" + os.path.splitext(out)[1]))
+    if not videos:
+        raise SystemExit("render.py: Blender wrote no film")
+    os.replace(videos[-1], os.path.join(folder, out))
+    bpy.data.scenes.remove(made)
+
+
+def assemble(frames, s, folder):
+    """
+    The frames rendered, put over the background asked for - in the
+    colours they were rendered in, so that white is white - and written:
+    a picture, a PNG; a film, an MP4 (H.264). A film on a transparent
+    background is two: its film for the page, an MP4 each frame of which
+    holds its picture and its alpha side by side (`joined`), and, from the
+    same frames, its film with transparency, QuickTime with ProRes 4444,
+    its alpha kept. Done by Blender's sequencer, in a scene of its own.
+    """
+    out = os.path.join(folder, s["out"])
+    background = s["background"]
+    if not s["film"] and background == "transparent":
+        os.replace(frames[0], out)
+        return
+    # (a film's video, H.264 in 4:2:0, keeps colour for each 2x2 pixels, and its encoder refuses an odd side: where a side
+    # Meno asked for is odd, the video is a pixel wider or taller, the frames at their own size in its corner and the
+    # background asked for in that pixel. A picture keeps its own size)
+    size = (even_up(s["width"]), even_up(s["height"])) if s["film"] else (s["width"], s["height"])
+    if not s["film"]:
+        made = sequenced(frames, s, size, BACKGROUNDS[background])
+        image = made.render.image_settings
         image.media_type = "IMAGE"
         image.file_format = "PNG"
         image.color_mode = "RGB"
         image.color_depth = "8"
         made.render.filepath = out
         bpy.ops.render.render(write_still=True, scene=made.name)
+        return
+    say("Making the film")
+    if background != "transparent":
+        video(sequenced(frames, s, size, BACKGROUNDS[background]), s, folder, s["out"], "H264")
+        return
+    if not s.get("matte"):
+        raise SystemExit("render.py: a film on a transparent background is too large")
+    # (the film with transparency, its alpha kept; then the film for the page, from the frames joined with their alpha)
+    video(sequenced(frames, s, size, None), s, folder, s["slides"], "PRORES")
+    both = (size[0], 2 * size[1]) if s["matte"] == "below" else (2 * size[0], size[1])
+    video(sequenced(joined_frames(frames, s, folder), s, both, BACKGROUNDS["black"]), s, folder, s["out"], "H264")
 
 
 # A look, a studio or a motion of a preset plugin (docs/blender-presets.md): its module, from the files Meno put in the

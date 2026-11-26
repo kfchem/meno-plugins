@@ -1,7 +1,7 @@
 {
   "id": "blender",
   "name": "Blender",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "uses": [
     {
       "name": "Blender",
@@ -191,6 +191,10 @@
           "label": "Background",
           "type": "choice",
           "choices": [
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            },
             {
               "value": "white",
               "label": "White"
