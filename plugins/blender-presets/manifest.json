@@ -1,7 +1,7 @@
 {
   "id": "blender-presets",
   "name": "Film looks and motions",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Looks, studios and film motions made with Blender's own materials, light and keys, for the Blender plugin to render.",
   "licence": "GPL-3.0-or-later",
   "homepage": "https://github.com/kfchem/meno-plugins/blob/main/docs/blender-presets.md",
@@ -41,7 +41,7 @@
       {
         "id": "silver",
         "label": "Silver: mirror or satin",
-        "description": "Silver, mirror or satin.",
+        "description": "Silver, mirror or satin. It suits the Paper sweep: it mirrors the studio round it, and in the Dark cyclorama it reads almost black.",
         "own": true,
         "file": "look_silver.py"
       },
@@ -55,7 +55,7 @@
       {
         "id": "bubble",
         "label": "Soap bubble: clear, with thin-film colour",
-        "description": "Clear, with a thin film's colours at the rim.",
+        "description": "Clear, with a thin film's colours at the rim. It suits the Paper sweep: in the Dark cyclorama it mirrors the dark, and its colours hardly show.",
         "parts": {
           "sticks": "stopped"
         },
@@ -73,21 +73,21 @@
       {
         "id": "marble",
         "label": "Marble: polished white stone, veined",
-        "description": "Polished white stone with veins.",
+        "description": "Polished white stone with veins. It suits the Dark cyclorama: on the Paper sweep it is white on white.",
         "own": true,
         "file": "look_marble.py"
       },
       {
         "id": "porcelain",
         "label": "Porcelain: glazed blue-white",
-        "description": "Glazed porcelain, or a pearl's cream white.",
+        "description": "Glazed porcelain, or a pearl's cream white. It suits the Dark cyclorama: on the Paper sweep it is white on white.",
         "own": true,
         "file": "look_porcelain.py"
       },
       {
         "id": "slime",
         "label": "Slime: see-through jelly",
-        "description": "A see-through jelly in the element colours.",
+        "description": "A see-through jelly in the element colours. It suits the Dark cyclorama: on the Paper sweep its pale parts fade into the paper.",
         "parts": {
           "sticks": "stopped"
         },

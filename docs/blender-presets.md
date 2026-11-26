@@ -82,6 +82,11 @@ motion fixes its renderer), and the card shows the background as the
 studio sets it, said and not to be changed, so that what the card says is
 what the picture or film is.
 
+A look that fades into one studio's backdrop says in its description
+which studio suits it, by the studio's label. Film looks and motions'
+silver and soap bubble suit the Paper sweep; its marble, porcelain and
+slime suit the Dark cyclorama.
+
 **A motion** (`motions[].file`):
 
 - `NOMINAL`: the length in seconds it is timed in; a film of another
@@ -97,6 +102,14 @@ what the picture or film is.
   becoming molecule `b`, both Meno's as drawn. The renderer makes the
   pieces, one for each change, the camera running on through them, and
   joins them.
+
+Film looks and motions keys each of its motions with a kit the motions
+share (`motionkit.py`, and `change.py` for a change; `motion_kit.py` hands
+them over): the kit's names are handed to the motion's module before it
+is keyed, again at each keying. A name the motion binds itself is never
+replaced by the kit's: a motion that binds one of the kit's names to
+something else (the same module imported by both is not that) is refused
+before anything is keyed, the motion's file and the names said.
 
 The renderer renders the frames and makes the film.
 
