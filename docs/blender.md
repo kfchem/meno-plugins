@@ -17,8 +17,9 @@ for its entry by `collect`:
   is, the pad clear. The halves lie one above the other where the whole fits within 4096 x 2304 pixels (what H.264 at
   level 5.1 holds, ITU-T H.264 Table A-1), else side by side where that fits; a film too large for either is refused
   before it is rendered, with a sentence saying how large it may be.
-- **`film.mov`, the film for slide programs**: QuickTime, ProRes 4444, with an alpha channel, from the same frames, at
-  the size asked for made even. Not every program reads this file.
+- **`film.mov`, the film with transparency**: QuickTime, ProRes 4444, with an alpha channel, from the same frames, at
+  the size asked for made even. Not every program reads this file. Slide programs differ in what they keep of a film's
+  transparency; where a film must lie on a slide, render it on the slide's colour.
 
 `matte` is said only on a `video/mp4` item; an item of `video/quicktime` only beside one that says it. A film on White,
 Black or Grey is one MP4, as before.

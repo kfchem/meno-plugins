@@ -52,7 +52,7 @@ PICTURE = "picture.png"
 FELL_BACK = "Rendering on the processor (no graphics processor Blender can use)"
 FASTER = "Rendering on the processor (the faster one here)"
 FILM = "film.mp4"
-# a film on a transparent background: beside its film for the page, the same frames for slide programs (QuickTime, ProRes 4444,
+# a film on a transparent background: beside its film for the page, the same frames with their transparency (QuickTime, ProRes 4444,
 # its alpha kept)
 SLIDES = "film.mov"
 # the largest frame a film for the page is made in - its picture and its alpha, the two halves of each frame: what video
@@ -314,7 +314,7 @@ def op_collect(m):
         if not film:
             made.append({"entry": i, "file": PICTURE, "media": "image/png"})
             continue
-        # (a film on a transparent background: its film for the page, saying where its alpha lies, and its film for slide programs)
+        # (a film on a transparent background: its film for the page, saying where its alpha lies, and its film with transparency)
         s = settings_of(entry, m.get("options") or {})
         if s.get("matte"):
             made.append({"entry": i, "file": FILM, "media": "video/mp4", "matte": s["matte"]})

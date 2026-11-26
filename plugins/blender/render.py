@@ -39,7 +39,7 @@ The settings (all checked by the worker that wrote them):
     scene       the glTF file's name, in the job's folder
     out         the name to write: a picture's (PNG) or a film's (MP4)
     matte, slides   a film on a transparent background's: where the alpha lies in each frame of its MP4 ("below" or "right"),
-                and the name of the film for slide programs written beside it (QuickTime, ProRes 4444)
+                and the name of the film with transparency written beside it (QuickTime, ProRes 4444)
     film        a film, not a picture
     width, height, frames, fps
     engine      "cycles" or "eevee"
@@ -649,7 +649,7 @@ def assemble(frames, s, folder):
     a picture, a PNG; a film, an MP4 (H.264). A film on a transparent
     background is two: its film for the page, an MP4 each frame of which
     holds its picture and its alpha side by side (`joined`), and, from the
-    same frames, its film for slide programs, QuickTime with ProRes 4444,
+    same frames, its film with transparency, QuickTime with ProRes 4444,
     its alpha kept. Done by Blender's sequencer, in a scene of its own.
     """
     out = os.path.join(folder, s["out"])
@@ -677,7 +677,7 @@ def assemble(frames, s, folder):
         return
     if not s.get("matte"):
         raise SystemExit("render.py: a film on a transparent background is too large")
-    # (the film for slide programs, its alpha kept; then the film for the page, from the frames joined with their alpha)
+    # (the film with transparency, its alpha kept; then the film for the page, from the frames joined with their alpha)
     video(sequenced(frames, s, size, None), s, folder, s["slides"], "PRORES")
     both = (size[0], 2 * size[1]) if s["matte"] == "below" else (2 * size[0], size[1])
     video(sequenced(joined_frames(frames, s, folder), s, both, BACKGROUNDS["black"]), s, folder, s["out"], "H264")

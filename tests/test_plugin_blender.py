@@ -95,7 +95,7 @@ class Prepare(unittest.TestCase):
         self.assertEqual(background(SCENE, card), "transparent")
         self.assertEqual(background(film, {}), "white")
         self.assertEqual(background(SCENE, {}), "transparent")
-        # (a film on a transparent background: where its alpha lies, and its film for slide programs, written as settings)
+        # (a film on a transparent background: where its alpha lies, and its film with transparency, written as settings)
         said = ask("prepare", step="render", entries=[{**film, "width": 1280, "height": 720}], options={"film-background": "transparent"})
         settings = json.loads({f["name"]: f["text"] for f in said["result"]["jobs"][0]["files"]}["render.json"])
         self.assertEqual((settings["background"], settings["out"], settings["matte"], settings["slides"]), ("transparent", "film.mp4", "below", "film.mov"))
