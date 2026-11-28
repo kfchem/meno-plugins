@@ -70,18 +70,22 @@ def program():
 RAISED = re.compile(r"^[A-Za-z_][\w.]*(Error|Exception|Exit)\b: ")
 
 
-# A place on the computer, written whole, begins at a root: "/", "~/", a drive's "C:\" or "C:/", a share's "\\", or a
+# A place on the computer, written whole, begins at a root: "/", "~/", "~name/" or "~name" (a home, with its user's name), a drive's
+# "C:\" or "C:/", a share's "\\", or a
 # "file://" link - never inside a word or another link's address (https://, s3://: left as they are).
-ROOT = re.compile(r"""(?<![\w.:/\\~-])(?:file://(?:localhost)?(?=/)|[A-Za-z]:[\\/]|\\\\(?=[^\s\\])|~[\\/]|/(?=[^\s/\\]))""", re.I)
+ROOT = re.compile(r"""(?<![\w.:/\\~-])(?:file://(?:localhost)?(?=/)|[A-Za-z]:[\\/]|\\\\(?=[^\s\\])|~[\w.-]*[\\/]|~[A-Za-z][\w.-]*(?![\w./\\-])|/(?=[^\s/\\]))""", re.I)
 QUOTES = "'\"`"
 # (what ends a file's name inside a word: a line number, a list, a sentence - "x.py:12:", "x.py,", "x.prior)")
 NAME_ENDS = re.compile(r"""[:;,)\]}>]""")
+# (a file's name: an extension after a name of its own - model.prior; .config and jane are folders' or none)
+FILE_NAME = re.compile(r"[^.]\.\w+$")
 
 
 def _place_at(words, start):
     """Where a place written whole from a root at `start` ends, and its last name. Quoted - its root right after a quote -
     it runs to that quote where it closes (followed by no letter or digit: o'brien's quote does not close it); unquoted,
-    to a blank, and on over each blank whose next word holds a separator too ("C:\\Users\\Jane Doe\\x.prior")."""
+    to a blank - its file's name ends it there - and on, from a folder's name, over a blank whose next word holds a
+    separator too ("C:\\Users\\Jane Doe\\x.prior")."""
     q = words[start - 1] if start and words[start - 1] in QUOTES else None
     if q:
         end = start
@@ -99,6 +103,9 @@ def _place_at(words, start):
         while end < len(words) and not words[end].isspace():
             end += 1
         while True:
+            # (a file's name ends it: on over a blank only from a folder's name, to a word that holds a separator too)
+            if FILE_NAME.search(NAME_ENDS.split(re.split(r"[\\/]", words[start:end])[-1])[0]):
+                break
             m = re.match(r"\s(\S+)", words[end:])
             if not m or not re.search(r"[\\/]", m.group(1)):
                 break
@@ -122,15 +129,16 @@ def placeless(words):
     name alone - the last name, where it has an extension ("/Users/name/My Models/model.prior" is "model.prior") - and a
     folder's by "a folder", its names said by none ("/Users/name" is "a folder"): a failure's words are copied into
     reports and questions, and no folder - the home folder with the person's name in it, the program's own - is a word
-    for them. Left as they are: a path from no root (models/x), a link with an address (https://), and - unquoted - a
-    folder's name holding a blank whose next word holds no separator (the path is taken to end at that blank)."""
+    for them. Left as they are: a path from no root (models/x) and a link with an address (https://). Unquoted, a path is
+    taken to end at a blank unless the word after it holds a separator, so a folder's name of three words or more
+    ("/Users/Jane van Doe/x.prior") leaves its later words, and a word holding a slash right after a folder's place
+    ("/Users/jane and/or") is taken for part of it."""
     out, at = [], 0
     for m in ROOT.finditer(words):
         if m.start() < at:
             continue
         end, name = _place_at(words, m.start())
-        # (a file's name has an extension after a name of its own: model.prior; .config and jane are folders' or none)
-        file = re.search(r"[^.]\.\w+$", name) is not None
+        file = FILE_NAME.search(name) is not None
         out.append(words[at:m.start()] + (name if file else "a folder"))
         at = end
     return "".join(out) + words[at:]
