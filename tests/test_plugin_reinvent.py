@@ -183,7 +183,8 @@ class Failure(unittest.TestCase):
 
     def test_says_no_place_on_the_computer(self):
         # (a raised line with the home folder in it; a Windows path with a user folder; a folder holding spaces; a warning's line
-        #  from the environment's own packages: each file by its name alone - and words with no place in them as they are)
+        #  from the environment's own packages: each file by its name alone; a folder, the home folder alone among them, by none -
+        #  and words with no place in them, a link with an address and a path from no root, as they are)
         for line, said in (
             ("FileNotFoundError: [Errno 2] No such file or directory: '/Users/jane/Library/Application Support/Meno/model.prior'",
              "FileNotFoundError: [Errno 2] No such file or directory: 'model.prior'"),
@@ -193,6 +194,15 @@ class Failure(unittest.TestCase):
             ("ValueError: see ~/models/model.prior", "ValueError: see model.prior"),
             ("ValueError: a ratio of 50/50, a / b, at https://example.org/a/b", "ValueError: a ratio of 50/50, a / b, at https://example.org/a/b"),
             ("RuntimeError: a stand-in", "RuntimeError: a stand-in"),
+            ("PermissionError: [Errno 13] Permission denied: '/Users/jane'", "PermissionError: [Errno 13] Permission denied: 'a folder'"),
+            ("OSError: cannot read /Users/jane", "OSError: cannot read a folder"),
+            ("OSError: cannot read /Users/o'brien/x.prior now", "OSError: cannot read x.prior now"),
+            ("OSError: cannot read '/Users/o'brien/x.prior'", "OSError: cannot read 'x.prior'"),
+            ("OSError: cannot read /Users/jane (work)/x.prior now", "OSError: cannot read x.prior now"),
+            ("OSError: cannot read [/Users/jane]", "OSError: cannot read [a folder]"),
+            ("OSError: cannot read file:///Users/jane/x.prior now", "OSError: cannot read x.prior now"),
+            ("OSError: no models in C:\\Users\\O'Brien\\Models", "OSError: no models in a folder"),
+            ("OSError: kept at s3://bucket/jane/x and models/x.prior", "OSError: kept at s3://bucket/jane/x and models/x.prior"),
         ):
             with self.subTest(line):
                 self.assertEqual(self.stopped(f"print({line!r}, file=sys.stderr)\nsys.exit(1)"), "REINVENT 4 stopped: " + said)
