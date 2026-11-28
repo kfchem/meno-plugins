@@ -11,6 +11,7 @@ uv/plugin-reinvent/venv, will do.) Elsewhere they are skipped: the
 environment is about a gigabyte, too much for every push.
 """
 
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -133,6 +134,61 @@ class Options(unittest.TestCase):
         text = WORKER.read_text(encoding="utf-8")
         self.assertIn("unique_molecules = false", text)
         self.assertNotIn("randomize_smiles", text)
+
+
+class Failure(unittest.TestCase):
+    """Why a run stopped, in the program's own words - needing nothing of REINVENT 4: a stand-in for its command."""
+
+    def setUp(self):
+        self.files = tempfile.TemporaryDirectory()
+        real = importlib.metadata.version
+        importlib.metadata.version = lambda name: "0"
+        try:
+            sys.argv = [str(WORKER), self.files.name]
+            spec = importlib.util.spec_from_file_location("plugin_reinvent_stand_in", WORKER)
+            self.worker = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(self.worker)
+        finally:
+            importlib.metadata.version = real
+
+    def tearDown(self):
+        self.files.cleanup()
+
+    def stopped(self, script):
+        """What the worker says where its program is `script` (Python), run as REINVENT 4 is run."""
+        with tempfile.TemporaryDirectory() as bin_:
+            command = pathlib.Path(bin_) / "reinvent"
+            command.write_text(f"#!{sys.executable}\nimport sys\n{script}\n", encoding="utf-8")
+            command.chmod(0o755)
+            self.worker.program = lambda: str(command)
+            with tempfile.TemporaryDirectory() as folder, self.assertRaises(ValueError) as e:
+                self.worker.sampled(3, 7, folder)
+        return str(e.exception)
+
+    def test_says_what_python_raised_where_it_stopped_before_its_log(self):
+        said = self.stopped(
+            "print('Traceback (most recent call last):', file=sys.stderr)\n"
+            "print('  File \"x.py\", line 1, in <module>', file=sys.stderr)\n"
+            f"print('FileNotFoundError: no such file: ' + {json.dumps(self.files.name)} + '/reinvent_pubchem.prior', file=sys.stderr)\n"
+            "print('a line after it', file=sys.stderr)\n"
+            "sys.exit(1)"
+        )
+        # (no place on the computer in it: the prior by its name alone)
+        self.assertEqual(said, "REINVENT 4 stopped: FileNotFoundError: no such file: reinvent_pubchem.prior")
+
+    def test_says_its_error_streams_last_line_else_its_exit(self):
+        said = self.stopped("print('the first', file=sys.stderr)\nprint('the last it said', file=sys.stderr)\nsys.exit(2)")
+        self.assertEqual(said, "REINVENT 4 stopped: the last it said")
+        self.assertEqual(self.stopped("sys.exit(3)"), "REINVENT 4 stopped: exit 3")
+
+    def test_says_its_own_logs_last_line_first(self):
+        said = self.stopped(
+            "log = sys.argv[sys.argv.index('-l') + 1]\n"
+            "open(log, 'w').write('started\\nthe prior could not be read\\n')\n"
+            "print('ValueError: something else', file=sys.stderr)\n"
+            "sys.exit(1)"
+        )
+        self.assertEqual(said, "REINVENT 4 stopped: the prior could not be read")
 
 
 if __name__ == "__main__":

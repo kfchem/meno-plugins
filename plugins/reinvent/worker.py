@@ -41,6 +41,7 @@ import importlib.metadata
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,29 @@ MOST = 100
 SEED = 1
 
 VERSION = importlib.metadata.version("reinvent")
+
+
+def program():
+    """REINVENT 4's command, beside the Python it runs in."""
+    return os.path.join(os.path.dirname(sys.executable), "reinvent")
+
+
+# (an exception Python raised, as its traceback ends: its kind, then what it says - "FileNotFoundError: ...")
+RAISED = re.compile(r"^[A-Za-z_][\w.]*(Error|Exception|Exit)\b: ")
+
+
+def why_of(log, err, code, folder):
+    """Why REINVENT 4 stopped, as it says: the last line of its own log; else, where it stopped before writing one, the
+    last that Python raised on its error stream, else that stream's last line; else its exit status. The folders it was
+    run in and given its prior from are said by the file's name alone: no place on the computer is a word for the
+    person."""
+    told = [line.strip() for line in err.splitlines() if line.strip()]
+    raised = [line for line in told if RAISED.match(line)]
+    why = log[-1] if log else raised[-1] if raised else told[-1] if told else f"exit {code}"
+    for place in (folder, FILES):
+        if place:
+            why = why.replace(os.path.join(place, ""), "").replace(place, ".")
+    return why
 
 
 def sampled(count, seed, folder):
@@ -80,17 +104,16 @@ def sampled(count, seed, folder):
             # (every one sampled, duplicates and those it could not read among them: which are kept is Meno's to say)
             "unique_molecules = false\n"
         )
-    reinvent = os.path.join(os.path.dirname(sys.executable), "reinvent")
     done = subprocess.run(
-        [reinvent, "-s", str(int(seed)), "-l", log, toml],
-        cwd=folder, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [program(), "-s", str(int(seed)), "-l", log, toml],
+        cwd=folder, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
     )
     if done.returncode != 0 or not os.path.exists(out):
         said = []
         if os.path.exists(log):
             with open(log, encoding="utf-8", errors="replace") as f:
                 said = [line.strip() for line in f if line.strip()]
-        raise ValueError("REINVENT 4 stopped: " + (said[-1] if said else f"exit {done.returncode}"))
+        raise ValueError("REINVENT 4 stopped: " + why_of(said, done.stderr.decode("utf-8", "replace"), done.returncode, folder))
     with open(out, encoding="utf-8") as f:
         return [(row["SMILES"], int(row["SMILES_state"]) if row.get("SMILES_state", "").strip().lstrip("-").isdigit() else None, float(row["NLL"])) for row in csv.DictReader(f)]
 
