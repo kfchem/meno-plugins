@@ -1099,13 +1099,19 @@ FCHK_MANY_POINTS_JOB = FCHK_MANY_POINTS | {"fts", "pts", "fsaddle", "psaddle"}
 
 
 def route_keywords(route):
-    """A route's keywords, each by its name alone, small: its words split at spaces and commas outside brackets, a
+    """A route's keywords, each by its name alone, small: its words split at spaces and commas outside brackets and after a
+    closing bracket, a
     keyword's name before its "=" or its "(" ("Opt=(TS,CalcFC)" is opt; "#P", leading the route, is none)."""
     words, word, depth = [], "", 0
     for ch in route:
         depth += (ch == "(") - (ch == ")")
         if depth <= 0 and (ch.isspace() or ch == ","):
             words.append(word)
+            word, depth = "", 0
+        elif depth <= 0 and ch == ")":
+            # (a closing bracket ends its keyword: what follows it is the next one, "6-31G(d)Opt" - a guard, should a
+            #  route's lines be joined with no blank between)
+            words.append(word + ch)
             word, depth = "", 0
         else:
             word += ch

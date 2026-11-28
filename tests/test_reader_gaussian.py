@@ -616,7 +616,7 @@ class AFormattedCheckpoint(unittest.TestCase):
             "#P Opt(TS, CalcFC) B3LYP/6-31G(d)", "#P FOpt B3LYP/6-31G(d)", "#P POpt B3LYP/6-31G(d)", "#P Scan B3LYP/6-31G(d)", "#p scan hf/sto-3g",
             "#P IRC(MaxPoints=4,CalcFC) B3LYP/6-31G(d)", "#P irc=(forward) B3LYP/6-31G(d)", "#P IRCMax(Maximum) B3LYP/6-31G(d)",
             "#P ADMP(MaxPoints=50) B3LYP/6-31G(d)", "#p admp b3lyp/6-31g(d)", "#P BOMD(MaxPoints=20) B3LYP/6-31G(d)", "#p bomd hf/sto-3g",
-            "#Opt B3LYP/6-31G(d)", "#P B3LYP/6-31G(d),Opt"
+            "#Opt B3LYP/6-31G(d)", "#P B3LYP/6-31G(d),Opt", "#P B3LYP/6-31G(d)Opt", "#P B3LYP/6-31G(d)Opt=(TS,CalcFC)", "#p hf/sto-3g scrf=(pcm)irc(maxpoints=4)"
         )]
         for job, route in many:
             with self.subTest(job=job, route=route):
@@ -627,7 +627,7 @@ class AFormattedCheckpoint(unittest.TestCase):
         # (one structure: nothing said - "opt" or "scan" as another keyword's option, or inside another word, is none)
         for job, route in (("SP", "#P B3LYP/6-31G(d)"), ("Freq", "#P B3LYP/6-31G(d) Freq"), ("SP", "#P B3LYP/6-31G(d) Stable=Opt"),
                            ("SP", "#p b3lyp/6-31g(d) stable=(opt,qrhf)"), ("SP", "#P B3LYP/6-31G(d) Guess=(Read,Opt)"), ("SP", "#P Freq=(ReadFC,Opt) HF/STO-3G"),
-                           ("SP", "#P B3LYP/6-31G(d) Pop=Full IOp(6/7=3)"), ("SP", "#P B3LYP/6-31G(d) Geom=NoCrowd"), ("SP", "#P B3LYP/6-31G(d) SCRF=(Solvent=Scanol)")):
+                           ("SP", "#P B3LYP/6-31G(d) Pop=Full IOp(6/7=3)"), ("SP", "#P B3LYP/6-31G(d) Geom=NoCrowd"), ("SP", "#P B3LYP/6-31G(d) SCRF=(Solvent=Scanol)"), ("SP", "#P B3LYP/6-31G(d)Stable=Opt"), ("SP", "#P B3LYP/6-31G(d)Freq")):
             with self.subTest(job=job, route=route):
                 self.assertNotIn("warnings", checkpoint(job, route))
         # (a title holding the words is no job's)
