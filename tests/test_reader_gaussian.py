@@ -604,6 +604,27 @@ class AFormattedCheckpoint(unittest.TestCase):
         self.assertEqual(sum(x["occupation"] for x in o), 10)
         self.assertNotIn("orbitals", r)
 
+    def test_a_job_of_many_structures_is_said_to_be_read_for_its_current_one_alone(self):
+        # (the reference lays out no item for each point of an optimisation, a scan or a path: one frame, and that said)
+        def checkpoint(job, route):
+            text = FCHK.replace("SP        RB3LYP", f"{job:<10}RB3LYP", 1).replace("#P B3LYP/6-31G(d) Opt Fr eq", route, 1)
+            return reader.read_jobs("water.fchk", text)
+
+        for job, route in (("FOpt", "#P B3LYP/6-31G(d)"), ("POpt", "#P B3LYP/6-31G(d)"), ("FTS", "#P B3LYP/6-31G(d)"),
+                           ("Scan", "#P B3LYP/6-31G(d)"), ("IRC", "#P B3LYP/6-31G(d)"),
+                           ("Freq", "#P B3LYP/6-31G(d) Opt Freq"), ("SP", "#P Opt=(TS,CalcFC) B3LYP/6-31G(d)"),
+                           ("SP", "#P IRC(MaxPoints=4) B3LYP/6-31G(d)"), ("SP", "#P Scan B3LYP/6-31G(d)")):
+            with self.subTest(job=job, route=route):
+                o = checkpoint(job, route)
+                self.assertEqual(len(o["frames"]), 1)
+                self.assertEqual([w["kind"] for w in o["warnings"]], ["other"])
+                self.assertIn("Only the last structure was read", o["warnings"][0]["text"])
+        # (one structure: nothing said - an "opt" or "scan" inside another word is none)
+        for job, route in (("SP", "#P B3LYP/6-31G(d)"), ("Freq", "#P B3LYP/6-31G(d) Freq"), ("SP", "#P B3LYP/6-31G(d) Pop=Full IOp(6/7=3)"),
+                           ("SP", "#P B3LYP/6-31G(d) Geom=NoCrowd")):
+            with self.subTest(job=job, route=route):
+                self.assertNotIn("warnings", checkpoint(job, route))
+
 
 def fchk_item(label, kind, values):
     """An item as "Interfacing to Gaussian 16" lays one out: its label (A40), its type, and "N=" and its values after,

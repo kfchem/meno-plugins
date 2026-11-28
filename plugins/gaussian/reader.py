@@ -1090,6 +1090,10 @@ FCHK_PER_LINE = {"I": 6, "R": 5, "C": 5, "H": 9, "L": 72}
 # a dipole in debye for one in e bohr: the bohr in metres times the elementary charge, over 1e-21/c C m (CODATA 2018)
 DEBYE_PER_E_BOHR = 0.529177210903e-10 * 1.602176634e-19 / (1e-21 / 299792458)
 BOHR = 0.529177210903
+# A job of many structures - an optimisation, a scan, a reaction path - as a checkpoint's job type (FOPT, SCAN, IRC) or its
+# route names it: the reference lays out no item holding each of its points, so its current geometry alone is read, and
+# that is said.
+FCHK_MANY_POINTS = re.compile(r"(?i)(?<![\w-])(opt|scan|irc|ircmax)(?![a-z])|^[fp](opt|ts|saddle\d*)$")
 
 
 def is_fchk(text):
@@ -1134,10 +1138,11 @@ def fchk_items(text):
 
 
 def read_fchk(name, text):
-    """A formatted checkpoint, in Meno's form: its atoms and their one geometry (bohr, as all its quantities, made
-    angstroms), each one's mass, its energy, charge and multiplicity, its method, basis and solvation, the program's
-    version; its Mulliken charges, its dipole (e bohr, made debye) about its coordinates' origin, its RMS gradient, its
-    orbitals and its vibrations."""
+    """A formatted checkpoint, in Meno's form: its atoms and their one geometry, its current one (bohr, as all its
+    quantities, made angstroms), each one's mass, its energy, charge and multiplicity, its method, basis and solvation,
+    the program's version; its Mulliken charges, its dipole (e bohr, made debye) about its coordinates' origin, its RMS
+    gradient, its orbitals and its vibrations; and, for a job of many structures, a warning that its current one alone
+    was read."""
     head, items = fchk_items(text)
     zs = items.get("Atomic numbers")
     xyz = items.get("Current cartesian coordinates")
@@ -1180,6 +1185,10 @@ def read_fchk(name, text):
                     "values": [(sum(c * c for c in g) / len(g)) ** 0.5]})
     out += vibration_list(fchk_modes(items, len(zs)), len(zs))
     result["results"] = out
+    route = items.get("Route") if isinstance(items.get("Route"), str) else ""
+    if FCHK_MANY_POINTS.search(head["job"]) or FCHK_MANY_POINTS.search(route):
+        result["warnings"] = [{"kind": "other", "text": "Only the last structure was read: a formatted checkpoint of an optimisation, a scan or a "
+                                                        "reaction path is read for its current geometry alone. Its output (.log) holds every point."}]
     found = fchk_orbitals(items)
     if found:
         result["orbitals"] = found
