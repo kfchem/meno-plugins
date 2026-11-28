@@ -87,6 +87,11 @@ ELEMENTS = set(
     "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh "
     "Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn".split()
 )
+# The letters SMILES writes small for an atom in an aromatic ring - the only small letters that are an element's: b c n o p s
+# alone, and se and as as well in brackets (OpenSMILES, *Aromaticity*). Any other small letters (co, na, h) name no element:
+# they are kept as a label as drawn, which reads as nothing, and the atom is never guessed.
+AROMATIC = {"b", "c", "n", "o", "p", "s"}
+AROMATIC_BRACKETED = AROMATIC | {"se", "as"}
 
 
 def atom_of(symbol):
@@ -96,7 +101,7 @@ def atom_of(symbol):
     m = BRACKET.match(s)
     if m:
         el = m.group(2)
-        el = el[0].upper() + el[1:] if el.islower() else el
+        el = el.capitalize() if el in AROMATIC_BRACKETED else el
         if el in ELEMENTS:
             sign = m.group(5) or ""
             charge = 0
@@ -109,7 +114,7 @@ def atom_of(symbol):
             if m.group(1):
                 out["isotope"] = int(m.group(1))
             return out
-    plain = s[0].upper() + s[1:] if s.islower() and len(s) <= 2 else s
+    plain = s.upper() if s in AROMATIC else s
     if plain in ELEMENTS:
         return {"el": plain}
     label = s[1:-1] if s.startswith("[") and s.endswith("]") else s

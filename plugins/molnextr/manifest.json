@@ -1,7 +1,7 @@
 {
   "id": "molnextr",
   "name": "MolNexTR",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "uses": [{"name": "MolNexTR", "version": "1.0.0+6f6502b"}],
   "description": "Reads structures from pictures - a figure a PDF holds as a picture, a screenshot - with MolNexTR, a model trained on drawings of molecules.",
   "licence": "Apache-2.0",
