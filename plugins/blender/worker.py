@@ -281,7 +281,26 @@ SAID_AFTER = re.compile(
 )
 
 
+# A place on the computer, written whole: from a root ("/", "~/", a drive's "C:\\", a share's "\\\\"), folder after folder - a
+# folder's name may hold spaces, never a quote, a colon or a bracket - up to the last separator. The file's own name after it is
+# kept: "/Users/name/My Models/model.prior" is "model.prior".
+PLACE = re.compile(r"""(?<![\w.:/\\])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|/)(?:[^\s\\/'"`:;,()\[\]](?:[^\\/\n'"`:;,()\[\]]*[^\s\\/'"`:;,()\[\]])?[\\/])+""")
+
+
+def placeless(words):
+    """Words with each place on the computer written from a root (`PLACE`) taken out up to its last separator, each file by
+    its own name alone: a failure's words are copied into reports and questions, and no folder - the home folder with the
+    person's name in it, the program's own - is a word for them. A path written from no root (folder/file) is left as it is,
+    and so is what follows a folder's name that holds a quote, a colon or a bracket."""
+    return PLACE.sub("", words)
+
+
 def why_of(log):
+    """Why Blender stopped (`said_of`), each place on the computer in it, written whole, said by its file's name alone."""
+    return placeless(said_of(log))
+
+
+def said_of(log):
     """Why Blender stopped, as it says: the last that render.py said as it stopped ("render.py: ...", said without the
     script's name, which is no word for the person) or that Python raised - all of it, a message of several lines as
     one - else its last line that says error, else its last; never Blender's own last words as it quits, "Error:

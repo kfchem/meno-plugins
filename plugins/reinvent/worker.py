@@ -70,18 +70,27 @@ def program():
 RAISED = re.compile(r"^[A-Za-z_][\w.]*(Error|Exception|Exit)\b: ")
 
 
-def why_of(log, err, code, folder):
+# A place on the computer, written whole: from a root ("/", "~/", a drive's "C:\\", a share's "\\\\"), folder after folder - a
+# folder's name may hold spaces, never a quote, a colon or a bracket - up to the last separator. The file's own name after it is
+# kept: "/Users/name/My Models/model.prior" is "model.prior".
+PLACE = re.compile(r"""(?<![\w.:/\\])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|/)(?:[^\s\\/'"`:;,()\[\]](?:[^\\/\n'"`:;,()\[\]]*[^\s\\/'"`:;,()\[\]])?[\\/])+""")
+
+
+def placeless(words):
+    """Words with each place on the computer written from a root (`PLACE`) taken out up to its last separator, each file by
+    its own name alone: a failure's words are copied into reports and questions, and no folder - the home folder with the
+    person's name in it, the program's own - is a word for them. A path written from no root (folder/file) is left as it is,
+    and so is what follows a folder's name that holds a quote, a colon or a bracket."""
+    return PLACE.sub("", words)
+
+
+def why_of(log, err, code):
     """Why REINVENT 4 stopped, as it says: the last line of its own log; else, where it stopped before writing one, the
-    last that Python raised on its error stream, else that stream's last line; else its exit status. The folders it was
-    run in and given its prior from are said by the file's name alone: no place on the computer is a word for the
-    person."""
+    last that Python raised on its error stream, else that stream's last line; else its exit status - each place on the
+    computer in it, written whole, said by its file's name alone (`placeless`)."""
     told = [line.strip() for line in err.splitlines() if line.strip()]
     raised = [line for line in told if RAISED.match(line)]
-    why = log[-1] if log else raised[-1] if raised else told[-1] if told else f"exit {code}"
-    for place in (folder, FILES):
-        if place:
-            why = why.replace(os.path.join(place, ""), "").replace(place, ".")
-    return why
+    return placeless(log[-1] if log else raised[-1] if raised else told[-1] if told else f"exit {code}")
 
 
 def sampled(count, seed, folder):
@@ -113,7 +122,7 @@ def sampled(count, seed, folder):
         if os.path.exists(log):
             with open(log, encoding="utf-8", errors="replace") as f:
                 said = [line.strip() for line in f if line.strip()]
-        raise ValueError("REINVENT 4 stopped: " + why_of(said, done.stderr.decode("utf-8", "replace"), done.returncode, folder))
+        raise ValueError("REINVENT 4 stopped: " + why_of(said, done.stderr.decode("utf-8", "replace"), done.returncode))
     with open(out, encoding="utf-8") as f:
         return [(row["SMILES"], int(row["SMILES_state"]) if row.get("SMILES_state", "").strip().lstrip("-").isdigit() else None, float(row["NLL"])) for row in csv.DictReader(f)]
 

@@ -227,6 +227,23 @@ class Collect(unittest.TestCase):
         said = ask("collect", step="render", entries=[SCENE], options={}, files={}, log=log, ended="failed")
         self.assertEqual(said["result"], {"why": "The scene has no camera"})
 
+    def test_says_no_place_on_the_computer(self):
+        # (a raised line with the home folder in it; a Windows path with a user folder; a folder holding spaces; a warning's line
+        #  from the environment's own packages: each file by its name alone - and words with no place in them as they are)
+        for line, said in (
+            ("FileNotFoundError: [Errno 2] No such file or directory: '/Users/jane/Library/Application Support/Meno/model.prior'",
+             "FileNotFoundError: [Errno 2] No such file or directory: 'model.prior'"),
+            ("OSError: cannot open C:\\Users\\Jane Doe\\AppData\\Local\\Meno\\model.prior for reading",
+             "OSError: cannot open model.prior for reading"),
+            ("/home/jane/My Envs/lib/python3.12/site-packages/thing/core.py:12: UserWarning: slow", "core.py:12: UserWarning: slow"),
+            ("ValueError: see ~/models/model.prior", "ValueError: see model.prior"),
+            ("ValueError: a ratio of 50/50, a / b, at https://example.org/a/b", "ValueError: a ratio of 50/50, a / b, at https://example.org/a/b"),
+            ("RuntimeError: a stand-in", "RuntimeError: a stand-in"),
+        ):
+            with self.subTest(line):
+                got = ask("collect", step="render", entries=[SCENE], options={}, files={}, log=f"Blender 5.2.2\n{line}\n", ended="failed")
+                self.assertEqual(got["result"], {"why": said})
+
     def test_says_what_python_raised_not_blenders_own_last_words(self):
         # (as Blender 5.2.2 ends a script that raised, and - after a large render - what it did not free)
         tail = "Error: script failed, file: 'render.py', exiting.\nBlender 5.2.2 LTS\n\nBlender quit\n"
