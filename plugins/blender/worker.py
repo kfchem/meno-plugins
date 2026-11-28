@@ -281,7 +281,86 @@ SAID_AFTER = re.compile(
 )
 
 
+# A place on the computer, written whole, begins at a root: "/", "~/", "~name/" or "~name" (a home, with its user's name), a drive's
+# "C:\" or "C:/", a share's "\\", or a
+# "file://" link - never inside a word or another link's address (https://, s3://: left as they are).
+ROOT = re.compile(r"""(?<![\w.:/\\~-])(?:file://(?:localhost)?(?=/)|[A-Za-z]:[\\/]|\\\\(?=[^\s\\])|~[\w.-]*[\\/]|~[A-Za-z][\w.-]*(?![\w./\\-])|/(?=[^\s/\\]))""", re.I)
+QUOTES = "'\"`"
+# (what ends a file's name inside a word: a line number, a list, a sentence - "x.py:12:", "x.py,", "x.prior)")
+NAME_ENDS = re.compile(r"""[:;,)\]}>]""")
+# (a file's name: an extension after a name of its own - model.prior; .config and jane are folders' or none)
+FILE_NAME = re.compile(r"[^.]\.\w+$")
+
+
+def _place_at(words, start):
+    """Where a place written whole from a root at `start` ends, and its last name. Quoted - its root right after a quote -
+    it runs to that quote where it closes (followed by no letter or digit: o'brien's quote does not close it); unquoted,
+    to a blank - its file's name ends it there - and on, from a folder's name, over a blank whose next word holds a
+    separator too ("C:\\Users\\Jane Doe\\x.prior")."""
+    q = words[start - 1] if start and words[start - 1] in QUOTES else None
+    if q:
+        end = start
+        while True:
+            end = words.find(q, end)
+            if end < 0:
+                end = len(words)
+                break
+            if end + 1 >= len(words) or not words[end + 1].isalnum():
+                break
+            end += 1
+        body, rest = words[start:end], ""
+    else:
+        end = start
+        while end < len(words) and not words[end].isspace():
+            end += 1
+        while True:
+            # (a file's name ends it: on over a blank only from a folder's name, to a word that holds a separator too)
+            if FILE_NAME.search(NAME_ENDS.split(re.split(r"[\\/]", words[start:end])[-1])[0]):
+                break
+            m = re.match(r"\s(\S+)", words[end:])
+            if not m or not re.search(r"[\\/]", m.group(1)):
+                break
+            end += m.end()
+        body = words[start:end]
+        cut = max(body.rfind("/"), body.rfind("\\"))
+        tail = body[cut + 1:]
+        m = NAME_ENDS.search(tail)
+        rest = tail[m.start():] if m else ""
+        body = body[: len(body) - len(rest)]
+        # (a quote closing the words around it is no name's)
+        while body and body[-1] in QUOTES:
+            rest, body = body[-1] + rest, body[:-1]
+        end = start + len(body)
+    name = re.split(r"[\\/]", body.rstrip("\\/"))[-1] if body.rstrip("\\/") else ""
+    return end, name
+
+
+def placeless(words):
+    """Words with each place on the computer written whole (`ROOT`, `_place_at`) taken out: a file's place said by its
+    name alone - the last name, where it has an extension ("/Users/name/My Models/model.prior" is "model.prior") - and a
+    folder's by "a folder", its names said by none ("/Users/name" is "a folder"): a failure's words are copied into
+    reports and questions, and no folder - the home folder with the person's name in it, the program's own - is a word
+    for them. Left as they are: a path from no root (models/x) and a link with an address (https://). Unquoted, a path is
+    taken to end at a blank unless the word after it holds a separator, so a folder's name of three words or more
+    ("/Users/Jane van Doe/x.prior") leaves its later words, and a word holding a slash right after a folder's place
+    ("/Users/jane and/or") is taken for part of it."""
+    out, at = [], 0
+    for m in ROOT.finditer(words):
+        if m.start() < at:
+            continue
+        end, name = _place_at(words, m.start())
+        file = FILE_NAME.search(name) is not None
+        out.append(words[at:m.start()] + (name if file else "a folder"))
+        at = end
+    return "".join(out) + words[at:]
+
+
 def why_of(log):
+    """Why Blender stopped (`said_of`), each place on the computer in it, written whole, said by its file's name alone."""
+    return placeless(said_of(log))
+
+
+def said_of(log):
     """Why Blender stopped, as it says: the last that render.py said as it stopped ("render.py: ...", said without the
     script's name, which is no word for the person) or that Python raised - all of it, a message of several lines as
     one - else its last line that says error, else its last; never Blender's own last words as it quits, "Error:

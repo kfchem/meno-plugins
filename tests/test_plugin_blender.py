@@ -227,6 +227,40 @@ class Collect(unittest.TestCase):
         said = ask("collect", step="render", entries=[SCENE], options={}, files={}, log=log, ended="failed")
         self.assertEqual(said["result"], {"why": "The scene has no camera"})
 
+    def test_says_no_place_on_the_computer(self):
+        # (a raised line with the home folder in it; a Windows path with a user folder; a folder holding spaces; a warning's line
+        #  from the environment's own packages: each file by its name alone; a folder, the home folder alone among them, by none -
+        #  and words with no place in them, a link with an address and a path from no root, as they are)
+        for line, said in (
+            ("FileNotFoundError: [Errno 2] No such file or directory: '/Users/jane/Library/Application Support/Meno/model.prior'",
+             "FileNotFoundError: [Errno 2] No such file or directory: 'model.prior'"),
+            ("OSError: cannot open C:\\Users\\Jane Doe\\AppData\\Local\\Meno\\model.prior for reading",
+             "OSError: cannot open model.prior for reading"),
+            ("/home/jane/My Envs/lib/python3.12/site-packages/thing/core.py:12: UserWarning: slow", "core.py:12: UserWarning: slow"),
+            ("ValueError: see ~/models/model.prior", "ValueError: see model.prior"),
+            ("ValueError: a ratio of 50/50, a / b, at https://example.org/a/b", "ValueError: a ratio of 50/50, a / b, at https://example.org/a/b"),
+            ("RuntimeError: a stand-in", "RuntimeError: a stand-in"),
+            ("OSError: cannot read ~jane/x.prior now", "OSError: cannot read x.prior now"),
+            ("OSError: cannot read ~jane", "OSError: cannot read a folder"),
+            ("OSError: /Users/jane/x.prior and/or y", "OSError: x.prior and/or y"),
+            ("OSError: /Users/jane/x.prior 1/2 done", "OSError: x.prior 1/2 done"),
+            ("OSError: copy /a/x.txt /b/y.txt", "OSError: copy x.txt y.txt"),
+            ("OSError: cannot read /Users/jane doe/x.prior now", "OSError: cannot read x.prior now"),
+            ("OSError: about ~5 of them", "OSError: about ~5 of them"),
+            ("PermissionError: [Errno 13] Permission denied: '/Users/jane'", "PermissionError: [Errno 13] Permission denied: 'a folder'"),
+            ("OSError: cannot read /Users/jane", "OSError: cannot read a folder"),
+            ("OSError: cannot read /Users/o'brien/x.prior now", "OSError: cannot read x.prior now"),
+            ("OSError: cannot read '/Users/o'brien/x.prior'", "OSError: cannot read 'x.prior'"),
+            ("OSError: cannot read /Users/jane (work)/x.prior now", "OSError: cannot read x.prior now"),
+            ("OSError: cannot read [/Users/jane]", "OSError: cannot read [a folder]"),
+            ("OSError: cannot read file:///Users/jane/x.prior now", "OSError: cannot read x.prior now"),
+            ("OSError: no models in C:\\Users\\O'Brien\\Models", "OSError: no models in a folder"),
+            ("OSError: kept at s3://bucket/jane/x and models/x.prior", "OSError: kept at s3://bucket/jane/x and models/x.prior"),
+        ):
+            with self.subTest(line):
+                got = ask("collect", step="render", entries=[SCENE], options={}, files={}, log=f"Blender 5.2.2\n{line}\n", ended="failed")
+                self.assertEqual(got["result"], {"why": said})
+
     def test_says_what_python_raised_not_blenders_own_last_words(self):
         # (as Blender 5.2.2 ends a script that raised, and - after a large render - what it did not free)
         tail = "Error: script failed, file: 'render.py', exiting.\nBlender 5.2.2 LTS\n\nBlender quit\n"

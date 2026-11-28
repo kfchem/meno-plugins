@@ -71,6 +71,26 @@ class Atoms(unittest.TestCase):
                 # (no symbol: nothing said of it)
                 self.assertEqual(w.atom_of(""), {})
 
+    def test_small_letters_are_an_element_only_where_smiles_writes_an_aromatic_atom_so(self):
+        for name, w in WORKERS.items():
+            with self.subTest(name):
+                # (b c n o p s alone; se and as as well in brackets)
+                for small, el in (("b", "B"), ("c", "C"), ("n", "N"), ("o", "O"), ("p", "P"), ("s", "S")):
+                    self.assertEqual(w.atom_of(small), {"el": el})
+                    self.assertEqual(w.atom_of(f"[{small}]"), {"el": el})
+                self.assertEqual(w.atom_of("[se]"), {"el": "Se"})
+                self.assertEqual(w.atom_of("[as]"), {"el": "As"})
+                self.assertEqual(w.atom_of("[o+]"), {"el": "O", "charge": 1})
+                # (any other small letters name no element: kept as drawn, never read as cobalt, sodium, hydrogen, chlorine)
+                for small in ("co", "na", "h", "cl", "br", "se", "as", "si", "k", "f", "i"):
+                    self.assertEqual(w.atom_of(small), {"label": small})
+                for small in ("co", "na", "h", "cl", "te", "si"):
+                    self.assertEqual(w.atom_of(f"[{small}]"), {"label": small})
+                self.assertEqual(w.atom_of("[na+]"), {"label": "na+"})
+                # (the same letters as capitals are the elements)
+                self.assertEqual(w.atom_of("Co"), {"el": "Co"})
+                self.assertEqual(w.atom_of("[Na+]"), {"el": "Na", "charge": 1})
+
     def test_a_wedge_is_said_by_which_end_lies_nearer(self):
         for name, w in WORKERS.items():
             with self.subTest(name):

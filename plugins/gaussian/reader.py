@@ -1090,6 +1090,40 @@ FCHK_PER_LINE = {"I": 6, "R": 5, "C": 5, "H": 9, "L": 72}
 # a dipole in debye for one in e bohr: the bohr in metres times the elementary charge, over 1e-21/c C m (CODATA 2018)
 DEBYE_PER_E_BOHR = 0.529177210903e-10 * 1.602176634e-19 / (1e-21 / 299792458)
 BOHR = 0.529177210903
+# A job of many structures - an optimisation (Opt, with its options: TS among them), a scan, a reaction path (IRC, IRCMax),
+# a trajectory (ADMP, BOMD) - as a checkpoint's job type (FOPT, SCAN) or its route names it, by the keyword itself, never
+# by an option of another's (Stable=Opt is one geometry's): the reference lays out no item holding each of its points, so
+# its current geometry alone is read, and that is said.
+FCHK_MANY_POINTS = {"opt", "fopt", "popt", "scan", "irc", "ircmax", "admp", "bomd"}
+FCHK_MANY_POINTS_JOB = FCHK_MANY_POINTS | {"fts", "pts", "fsaddle", "psaddle"}
+
+
+def route_keywords(route):
+    """A route's keywords, each by its name alone, small: its words split at spaces and commas outside brackets and after a
+    closing bracket, a
+    keyword's name before its "=" or its "(" ("Opt=(TS,CalcFC)" is opt; "#P", leading the route, is none)."""
+    words, word, depth = [], "", 0
+    for ch in route:
+        depth += (ch == "(") - (ch == ")")
+        if depth <= 0 and (ch.isspace() or ch == ","):
+            words.append(word)
+            word, depth = "", 0
+        elif depth <= 0 and ch == ")":
+            # (a closing bracket ends its keyword: what follows it is the next one, "6-31G(d)Opt" - a guard, should a
+            #  route's lines be joined with no blank between)
+            words.append(word + ch)
+            word, depth = "", 0
+        else:
+            word += ch
+    words.append(word)
+    names = [re.split(r"[=(]", w, maxsplit=1)[0].strip().lower() for w in words]
+    # (the route's lead, "#", "#N", "#P" or "#T", written alone or before the first keyword)
+    return [n for n in (re.sub(r"^#[npt]?(?=$|[^a-z])|^#", "", n) if n.startswith("#") else n for n in names) if n]
+
+
+def many_points(job, route):
+    """Whether a checkpoint's job, by its job type or its route's keywords, makes many structures."""
+    return job.strip().lower() in FCHK_MANY_POINTS_JOB or any(k in FCHK_MANY_POINTS for k in route_keywords(route))
 
 
 def is_fchk(text):
@@ -1134,10 +1168,11 @@ def fchk_items(text):
 
 
 def read_fchk(name, text):
-    """A formatted checkpoint, in Meno's form: its atoms and their one geometry (bohr, as all its quantities, made
-    angstroms), each one's mass, its energy, charge and multiplicity, its method, basis and solvation, the program's
-    version; its Mulliken charges, its dipole (e bohr, made debye) about its coordinates' origin, its RMS gradient, its
-    orbitals and its vibrations."""
+    """A formatted checkpoint, in Meno's form: its atoms and their one geometry, its current one (bohr, as all its
+    quantities, made angstroms), each one's mass, its energy, charge and multiplicity, its method, basis and solvation,
+    the program's version; its Mulliken charges, its dipole (e bohr, made debye) about its coordinates' origin, its RMS
+    gradient, its orbitals and its vibrations; and, for a job of many structures, a warning that its current one alone
+    was read."""
     head, items = fchk_items(text)
     zs = items.get("Atomic numbers")
     xyz = items.get("Current cartesian coordinates")
@@ -1180,6 +1215,10 @@ def read_fchk(name, text):
                     "values": [(sum(c * c for c in g) / len(g)) ** 0.5]})
     out += vibration_list(fchk_modes(items, len(zs)), len(zs))
     result["results"] = out
+    route = items.get("Route") if isinstance(items.get("Route"), str) else ""
+    if many_points(head["job"], route):
+        result["warnings"] = [{"kind": "other", "text": "Only the last structure was read: a formatted checkpoint of an optimisation, a scan, a "
+                                                        "reaction path or a trajectory is read for its current geometry alone. Its output (.log) holds every point."}]
     found = fchk_orbitals(items)
     if found:
         result["orbitals"] = found
